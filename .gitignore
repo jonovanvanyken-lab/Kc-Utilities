@@ -1,0 +1,9 @@
+# Never commit data: backups, Claude-page exports or meter photos
+kc-meters-*.json
+kc-utilities-*.json
+*.jpg
+*.jpeg
+*.heic
+*.png
+!icons/*.png
+.DS_Store

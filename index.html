@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.github.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#eceee9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1012" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Utilities">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon-32.png">
+<link rel="preload" href="fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="app.css?v=1.0">
+<title>Kč Utilities</title>
+</head>
+<body>
+
+<div id="lock" class="lock">
+  <div class="lock-card">
+    <div class="lock-brand"><img src="icons/icon-192.png" alt="" width="54" height="54"><h1>Kč Utilities</h1></div>
+    <p class="lock-sub" id="lockSub">Checking this device…</p>
+
+    <form id="unlockForm" hidden autocomplete="off">
+      <label class="fld"><span>Passphrase</span><input class="in" id="unlockPass" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
+      <label class="check"><input type="checkbox" id="unlockRemember" checked><span>Keep unlocked on this device</span></label>
+      <button class="btn primary" type="submit">Unlock</button>
+      <p class="hint" id="unlockHint"></p>
+    </form>
+
+    <div id="startChoice" class="lock-stack" hidden>
+      <button class="btn primary" id="startNew" type="button">Start on this device</button>
+      <button class="btn" id="startJoin" type="button">Join one that’s already synced</button>
+      <button class="btn" id="startRestore" type="button">Restore a backup</button>
+      <p class="fine">Readings, bills and meter photos are encrypted on this device with your passphrase before they’re saved or synced. There is no passphrase reset, so keep it in a password manager.</p>
+    </div>
+
+    <form id="newForm" hidden autocomplete="off">
+      <label class="fld"><span>Choose a passphrase (10 characters or more)</span><input class="in" id="newPass" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" required></label>
+      <label class="fld"><span>Type it again</span><input class="in" id="newPass2" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" required></label>
+      <label class="check"><input type="checkbox" id="newRemember" checked><span>Keep unlocked on this device</span></label>
+      <button class="btn primary" type="submit">Set up Kč Utilities</button>
+      <button class="btn ghost" type="button" data-back="1">Back</button>
+      <p class="hint" id="newHint"></p>
+    </form>
+
+    <form id="joinForm" hidden autocomplete="off">
+      <label class="fld"><span>Private repository</span><input class="in" id="joinRepo" type="text" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="your-username/Kc-Utilities-Data" required></label>
+      <label class="fld"><span>Access token (Contents: read and write, that repository only)</span><input class="in" id="joinToken" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required></label>
+      <label class="fld"><span>Passphrase</span><input class="in" id="joinPass" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
+      <label class="check"><input type="checkbox" id="joinRemember" checked><span>Keep unlocked on this device</span></label>
+      <button class="btn primary" type="submit">Join</button>
+      <button class="btn ghost" type="button" data-back="1">Back</button>
+      <p class="hint" id="joinHint"></p>
+    </form>
+
+    <form id="restoreForm" hidden autocomplete="off">
+      <label class="fld"><span>Backup file</span><input class="in" id="restoreFile" type="file" accept="application/json,.json" required></label>
+      <label class="fld"><span>The backup’s passphrase</span><input class="in" id="restorePass" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required></label>
+      <label class="check"><input type="checkbox" id="restoreRemember" checked><span>Keep unlocked on this device</span></label>
+      <button class="btn primary" type="submit">Restore</button>
+      <button class="btn ghost" type="button" data-back="1">Back</button>
+      <p class="hint" id="restoreHint"></p>
+    </form>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <div class="wrap top-row">
+      <h1 class="brand"><span class="brand-mark" aria-hidden="true">Kč</span>Utilities</h1>
+      <div class="top-actions">
+        <button class="sync" id="sync" type="button" data-s="local"><span class="sync-dot"></span><span id="sync-text">On this device</span></button>
+        <button class="iconbtn" id="lockBtn" type="button" aria-label="Lock" title="Lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+      </div>
+    </div>
+    <nav class="wrap tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+  </header>
+  <main class="wrap" id="main" aria-live="polite"></main>
+  <button class="fab" id="fab" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>Add reading</button>
+</div>
+<div class="sheet-wrap" id="sheet" hidden><div class="scrim" data-close="1"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" id="sheet-body"></div></div>
+<div class="toast" id="toast" role="status" hidden></div>
+<input type="file" id="pickFile" hidden>
+
+<script src="app.js?v=1.0"></script>
+</body>
+</html>

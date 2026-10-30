@@ -1,0 +1,15 @@
+{
+  "name": "Kč Utilities",
+  "short_name": "Utilities",
+  "description": "Gas, electricity and water readings with photo evidence, tracked against your advances.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eceee9",
+  "theme_color": "#eceee9",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
