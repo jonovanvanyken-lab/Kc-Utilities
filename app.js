@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
     ],
     bandMode: 'auto',
     baseKWhMonth: 60,
-    heatingPriorKWh: 3000, lowKWh: 2000, coldKWh: 4500,
+    heatingPriorKWh: 8445, lowKWh: 6000, coldKWh: 10000,
     heatSplit: [20, 17, 14, 8, 2, 0, 0, 0, 0, 8, 13, 18],
     advances: [{ from: '2026-10-25', amount: 1890 }],
     lastAdvance: '2027-09-25',
@@ -96,17 +96,23 @@ function valueAt(set, rate, t) {
 function heatShare(g, t) { return (g.heatSplit[new Date(t).getUTCMonth()] || 0) / 100 / dim(t); }
 function gasDailyKWh(g, H, t) { return g.baseKWhMonth / MD + H * heatShare(g, t); }
 function fitH(g, set) {
-  const K = 0.004; let num = K * g.heatingPriorKWh, den = K, sumS = 0;
+  // Heating energy observed in the core heating months (split >= 10 %), blended with the
+  // starting estimate. The estimate counts as 10 % of a heating year of readings, so a full
+  // December of readings outweighs it. Shoulder months (Oct, Apr) are left out because
+  // when the heating comes on there is a habit, not the weather.
+  const K = 0.10; const core = t => (g.heatSplit[new Date(t).getUTCMonth()] || 0) >= 10;
+  let num = 0, sumS = 0;
   const lastT = set.length ? set[set.length - 1].t : 0;
   for (let i = 1; i < set.length; i++) {
     const a = set[i - 1], b = set[i];
     if (b.t < lastT - 240 * DAY) continue;
+    const S = integrate(t => heatShare(g, t), a.t, b.t); if (S <= 0) continue;
+    const Sc = integrate(t => core(t) ? heatShare(g, t) : 0, a.t, b.t); if (Sc < 0.8 * S) continue;
     const obs = (b.v - a.v) * g.kwhPerM3;
     const base = g.baseKWhMonth / MD * (b.t - a.t) / DAY;
-    const S = integrate(t => heatShare(g, t), a.t, b.t);
-    num += (obs - base) * S; den += S * S; sumS += S;
+    num += obs - base; sumS += S;
   }
-  return { H: Math.max(0, Math.min(20000, num / den)), weight: (den - K) / den, sumS };
+  return { H: Math.max(0, Math.min(20000, (K * g.heatingPriorKWh + num) / (K + sumS))), weight: sumS / (K + sumS), sumS };
 }
 function fitRate(set, fallback) {
   if (set.length < 2) return { rate: fallback, fitted: false };
@@ -188,9 +194,12 @@ function summarize(cfg, readings, util, now) {
 }
 function gasScenario(cfg, sum, H) {
   const g = cfg.gas, x = sum.e.ms[0];
-  const base0 = valueAt(x.set, x.rate, sum.s);
+  // Anchored at the latest reading, so each track shows where the meter would go from today.
+  const last = x.set[x.set.length - 1];
+  const t0 = last && last.t > sum.s ? last.t : sum.s;
+  const base0 = last && last.t > sum.s ? last.v : valueAt(x.set, x.rate, sum.s);
   const rate = t => gasDailyKWh(g, H, t) / g.kwhPerM3;
-  return t => base0 + integrate(rate, sum.s, t);
+  return t => base0 + integrate(rate, t0, t);
 }
 function impliedGasH(cfg, sum) {
   if (!sum.hasAdv || !sum.tf) return null;
@@ -565,7 +574,7 @@ function vUtility(u, now) {
   const annualTxt = u === 'gas' ? `${nfmt(x.annual)} kWh` : `${nfmt(x.annualUnits, u === 'water' ? 1 : 0)} ${unit}`;
   const annualSub = u === 'gas' ? `${nfmt(x.annualUnits)} m³ · band ${bandLabel(x.tf.band)}` : `~${nfmt(x.annualUnits / 12, u === 'water' ? 1 : 0)} ${unit} a month`;
   const rateTxt = u === 'gas' ? `${nfmt(x.e.fit.H)} kWh` : `${nfmt(x.e.fit.rate, u === 'water' ? 3 : 2)} ${unit}`;
-  const rateSub = u === 'gas' ? `heating per year · ${x.e.fit.weight < .5 ? 'mostly the 3,000 kWh starting estimate' : 'fitted to your readings'}` : `per day ${x.e.fit.fitted ? 'from your readings' : '(starting estimate)'}`;
+  const rateSub = u === 'gas' ? `heating per year · ${x.e.fit.weight < .5 ? `mostly the ${nfmt(S.cfg.gas.heatingPriorKWh)} kWh starting estimate` : 'fitted to your readings'}` : `per day ${x.e.fit.fitted ? 'from your readings' : '(starting estimate)'}`;
   html += `<section class="tiles">
     <div class="tile"><span class="l">Balance today</span><span class="v ${x.hasAdv ? (x.balanceNow >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.balanceNow) : kc(-x.costNow)}</span><span class="s">${x.hasAdv ? `${kc(x.advPaid)} paid − ${kc(x.costNow)} used` : 'cost so far, no advance set'}</span></div>
     <div class="tile"><span class="l">At the bill</span><span class="v ${x.hasAdv ? (x.settlement >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.settlement) : '—'}</span><span class="s">${x.hasAdv ? `${x.settlement >= 0 ? 'refund' : 'to pay'} · cost ~${kc(x.costYear)} for the year` : `cost ~${kc(x.costYear)} for the year`}</span></div>
@@ -582,14 +591,16 @@ function vUtility(u, now) {
 function bandLabel(i) { const b = S.cfg.gas.bands; const lo = i ? b[i - 1].upToKWh : 0; return `${nfmt(lo / 1000, 2)}–${nfmt(b[i].upToKWh / 1000, 2)} MWh`; }
 function currentAdvance(x, now) { const nx = x.sched.find(p => p.t > now); return nx ? nx.a : (x.sched.length ? x.sched[x.sched.length - 1].a : 0); }
 function gasAdvanceCard(x, now) {
-  const rule = pd('2026-11-30') + DAY - 60000;
-  const cen = gasScenario(S.cfg, x, S.cfg.gas.heatingPriorKWh)(rule);
-  const ih = impliedGasH(S.cfg, x); const cez = ih != null ? gasScenario(S.cfg, x, ih)(rule) : null;
+  const rule = addMonths(monthStart(now), 1, 1) - 60000;
+  const g = S.cfg.gas;
+  const at = H => gasScenario(S.cfg, x, H)(rule);
+  const ih = impliedGasH(S.cfg, x);
   const cur = currentAdvance(x, now);
   const conf = x.e.fit.weight;
+  const r5 = v => nfmt(Math.round(v / 5) * 5);
   let body;
-  if (now < pd('2026-12-01')) {
-    body = `<p style="margin:0">Check your reading on <b>30 Nov</b>. If it is about <b>${nfmt(Math.round(cen / 5) * 5)} m³</b> or below, you are on the central track: lower the gas advance to about <b>1,300 Kč</b> in Můj ČEZ and raise electricity to 600–650 Kč. If it is near <b>${cez != null ? nfmt(Math.round(cez / 5) * 5) : '—'} m³</b>, ČEZ's estimate was right and 1,890 Kč stays.</p>`;
+  if (conf < .5) {
+    body = `<p style="margin:0">Until your readings cover a good part of the heating season, the forecast assumes ČEZ’s estimate for this flat (about ${nfmt((g.heatingPriorKWh + g.baseKWhMonth * 12) / 1000, 1)} MWh a year). Check the meter on <b>${fdShort(rule)}</b>: about <b>${r5(at(ih != null ? ih : g.heatingPriorKWh))} m³</b> means the ${kc(cur)} advance is right. Nearer <b>${r5(at(g.lowKWh))} m³</b> means you heat less and are heading for a refund; nearer <b>${r5(at(g.coldKWh))} m³</b> means a top-up.</p>`;
   } else {
     body = `<p style="margin:0">Your readings since the heating came on put the year at about ${nfmt(x.annual)} kWh.</p>`;
   }
@@ -600,7 +611,7 @@ function gasAdvanceCard(x, now) {
     const g = S.cfg.gas, coldAnnual = g.baseKWhMonth * 12 + g.coldKWh, tc = tariff(S.cfg, 'gas', coldAnnual);
     const costCold = tc.v * coldAnnual + tc.f * (x.en - x.s) / DAY / MD;
     const safe = Math.max(0, Math.ceil((costCold * 1.05 - x.advPaid) / x.remaining / 10) * 10);
-    sugLine = `A safe gas advance for now is about <b>${kc(safe)}</b> a month, enough for a cold winter (now ${kc(cur)}). At the pace of your readings so far it would be ${kc(sug)}, but that rests on very little heating data.`;
+    sugLine = `A safe gas advance for now is about <b>${kc(safe)}</b> a month, enough for a cold winter (now ${kc(cur)}). The forecast as it stands needs about ${kc(sug)}; it firms up once December’s readings are in.`;
   } else sugLine = `Suggested gas advance: <b>${kc(sug)}</b> a month (now ${kc(cur)}). It covers the forecast plus 5% headroom, spread over the ${x.remaining} remaining payments.`;
   return `<section class="card"><div class="card-h"><h3>Advance check</h3><span class="chip ${conf < .5 ? 'warn' : 'ok'}">${conf < .5 ? '! Early estimate' : '✓ Based on heating data'}</span></div>${body}
     <div class="note info"><span class="ic">≈</span><span>${sugLine}</span></div></section>`;
@@ -615,7 +626,8 @@ function gasExpectedCard(x, now) {
   const ih = impliedGasH(S.cfg, x);
   const scen = [
     { k: 'pace', label: 'Your pace', H: x.e.fit.H },
-    { k: 'central', label: `Central (${nfmt(g.heatingPriorKWh)} kWh heating)`, H: g.heatingPriorKWh },
+    { k: 'central', label: 'Starting estimate', H: g.heatingPriorKWh },
+    { k: 'low', label: `Less heating (${nfmt(g.lowKWh)} kWh)`, H: g.lowKWh },
     { k: 'cold', label: `Cold (${nfmt(g.coldKWh)} kWh)`, H: g.coldKWh },
     { k: 'cez', label: `ČEZ advance (~${nfmt((ih + g.baseKWhMonth * 12) / 1000, 1)} MWh)`, H: ih }
   ].filter(s => s.H != null);
@@ -628,12 +640,12 @@ function gasExpectedCard(x, now) {
   const series = [
     { label: 'Readings', color: 'var(--gas)', pts: pts(rd, x0, Math.min(lastT, x1), 2 * DAY), w: 2.5 },
     { label: 'Your pace (forecast)', color: 'var(--gas)', dash: '5 4', pts: pts(rd, lastT, x1, 3 * DAY), end: v => nfmt(Math.round(v)) },
-    { label: 'Central', color: 'var(--muted)', w: 1.5, pts: pts(fns.central, x.s, x1, 3 * DAY), end: v => 'Central ' + nfmt(Math.round(v)) },
-    { label: 'Cold', color: 'var(--ink-2)', w: 1.5, pts: pts(fns.cold, x.s, x1, 3 * DAY), end: v => 'Cold ' + nfmt(Math.round(v)) }
+    { label: 'Less heating', color: 'var(--muted)', w: 1.5, pts: pts(fns.low, Math.max(x.s, lastT), x1, 3 * DAY), end: v => 'Less ' + nfmt(Math.round(v)) },
+    { label: 'Cold', color: 'var(--ink-2)', w: 1.5, pts: pts(fns.cold, Math.max(x.s, lastT), x1, 3 * DAY), end: v => 'Cold ' + nfmt(Math.round(v)) }
   ];
-  if (fns.cez) series.push({ label: 'ČEZ advance', color: 'var(--ink)', w: 1.5, dash: '2 3', pts: pts(fns.cez, x.s, x1, 3 * DAY), end: v => 'ČEZ ' + nfmt(Math.round(v)) });
+  if (fns.cez) series.push({ label: 'ČEZ advance', color: 'var(--ink)', w: 1.5, dash: '2 3', pts: pts(fns.cez, Math.max(x.s, lastT), x1, 3 * DAY), end: v => 'ČEZ ' + nfmt(Math.round(v)) });
   const dots = [{ color: 'var(--gas)', pts: raw.map(r => [rT(r), +r.value]).filter(p => p[0] >= x0) }];
-  JOBS.push({ id: 'ch-gas-exp', fn: el => lineChart(el, { key: 'gas-exp', series, dots, x0, x1, today: now, yFmt: v => nfmt(v), tipFmt: v => nfmt(v, 1) + ' m³', height: 250, mr: 96, aria: 'Gas meter reading against expected readings for the central, cold and ČEZ scenarios' }) });
+  JOBS.push({ id: 'ch-gas-exp', fn: el => lineChart(el, { key: 'gas-exp', series, dots, x0, x1, today: now, yFmt: v => nfmt(v), tipFmt: v => nfmt(v, 1) + ' m³', height: 250, mr: 96, aria: 'Gas meter reading against expected readings for the less-heating, ČEZ and cold scenarios' }) });
   // month-end table
   const rows = []; let me = Date.UTC(new Date(x.s).getUTCFullYear(), new Date(x.s).getUTCMonth() + 1, 0);
   for (let k = 0; k < 8; k++) {
@@ -641,16 +653,16 @@ function gasExpectedCard(x, now) {
     const near = raw.filter(r => Math.abs(rT(r) - t) <= 2 * DAY).sort((a, b) => Math.abs(rT(a) - t) - Math.abs(rT(b) - t))[0];
     let act = '—';
     if (near) {
-      const v = +near.value; const c = fns.central(t), co = fns.cold(t);
-      const tag = v <= c + 3 ? '<span class="chip ok">✓ central or below</span>' : v <= co + 3 ? '<span class="chip warn">! central–cold</span>' : '<span class="chip bad">✕ above cold</span>';
+      const v = +near.value; const lo = fns.low(t), c = (fns.cez || fns.central)(t), co = fns.cold(t);
+      const tag = v <= lo + 3 && c - v > 10 ? '<span class="chip ok">✓ well under ČEZ</span>' : v <= c + 3 ? '<span class="chip ok">✓ within ČEZ</span>' : v <= co + 3 ? '<span class="chip warn">! above ČEZ</span>' : '<span class="chip bad">✕ above cold</span>';
       act = `${nfmt(v, near.value % 1 ? 1 : 0)} ${tag}`;
     } else if (t < now) act = '<span class="muted">no reading</span>';
-    rows.push(`<tr><td>${esc(fd(me, { year: '2-digit' }))}</td><td>${nfmt(Math.round(fns.pace(t)))}</td><td>${nfmt(Math.round(fns.central(t)))}</td><td>${nfmt(Math.round(fns.cold(t)))}</td>${fns.cez ? `<td>${nfmt(Math.round(fns.cez(t)))}</td>` : ''}<td>${act}</td></tr>`);
+    rows.push(`<tr><td>${esc(fd(me, { year: '2-digit' }))}</td><td>${nfmt(Math.round(fns.pace(t)))}</td><td>${nfmt(Math.round(fns.low(t)))}</td><td>${nfmt(Math.round((fns.cez || fns.central)(t)))}</td><td>${nfmt(Math.round(fns.cold(t)))}</td><td>${act}</td></tr>`);
     me = Date.UTC(new Date(me).getUTCFullYear(), new Date(me).getUTCMonth() + 2, 0);
   }
-  return `<section class="card"><div class="card-h"><h3>Meter reading vs expected</h3>${legend([{ c: 'var(--gas)', label: 'Your readings' }, { c: 'var(--gas)', label: 'Your pace', dash: 1 }, { c: 'var(--muted)', label: 'Central' }, { c: 'var(--ink-2)', label: 'Cold' }, { c: 'var(--ink)', label: 'ČEZ advance', dash: 1 }])}</div>
+  return `<section class="card"><div class="card-h"><h3>Meter reading vs expected</h3>${legend([{ c: 'var(--gas)', label: 'Your readings' }, { c: 'var(--gas)', label: 'Your pace', dash: 1 }, { c: 'var(--muted)', label: 'Less heating' }, { c: 'var(--ink)', label: 'ČEZ estimate', dash: 1 }, { c: 'var(--ink-2)', label: 'Cold' }])}</div>
     <div class="chart" id="ch-gas-exp"></div>
-    <div class="tblw"><table class="tbl"><thead><tr><th>Month end</th><th>Your pace</th><th>Central</th><th>Cold</th>${fns.cez ? '<th>ČEZ</th>' : ''}<th>Actual (m³)</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
+    <div class="tblw"><table class="tbl"><thead><tr><th>Month end</th><th>Your pace</th><th>Less heating</th><th>ČEZ</th><th>Cold</th><th>Actual (m³)</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
     <p class="small muted" style="margin:0">After May, add about ${nfmt(g.baseKWhMonth / g.kwhPerM3, 1)} m³ a month for hot water. Readings within two days of a month end count as actual.</p></section>`;
 }
 function addMonthsISO(s, k) { const t = pd(s); return iso(Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + k + 1, 0)); }
@@ -797,7 +809,7 @@ function vBills(now) {
 /* ---------- settings ---------- */
 const FIELDS = {
   billing: [['period.start', 'ČEZ billing year starts', 'date'], ['period.end', 'ČEZ billing year ends', 'date'], ['budgetMonthly', 'Utilities budget (Kč/month)']],
-  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, central estimate (kWh/year)'], ['gas.lowKWh', 'Heating, mild year (kWh/year)'], ['gas.coldKWh', 'Heating, cold year (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
+  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, starting estimate until winter readings (kWh/year)'], ['gas.lowKWh', 'Heating, less-heating track (kWh/year)'], ['gas.coldKWh', 'Heating, cold-winter track (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
   elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker and non-grid fee (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
   water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
 };
@@ -1169,7 +1181,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.4';
+const APP_VERSION = '1.5';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
