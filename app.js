@@ -13,9 +13,12 @@ const DEFAULT_CONFIG = {
     kwhPerM3: 10.6,
     supplierPerKWh: 1.30, supplierMonthly: 113.74,
     bands: [
-      { upToKWh: 1890, distPerKWh: 0.91460, distMonthly: 134.24 },
-      { upToKWh: 7560, distPerKWh: 0.49771, distMonthly: 199.76 },
-      { upToKWh: 15000, distPerKWh: 0.45154, distMonthly: 228.27 }
+      { upToKWh: 1890, supplierMonthly: 113.74, distPerKWh: 0.91460, distMonthly: 134.24 },
+      { upToKWh: 7560, supplierMonthly: 125.84, distPerKWh: 0.49771, distMonthly: 199.76 },
+      { upToKWh: 15000, supplierMonthly: 163.35, distPerKWh: 0.45154, distMonthly: 228.27 },
+      { upToKWh: 25000, supplierMonthly: 163.35, distPerKWh: 0.41815, distMonthly: 268.85 },
+      { upToKWh: 45000, supplierMonthly: 163.35, distPerKWh: 0.34915, distMonthly: 410.69 },
+      { upToKWh: 63000, supplierMonthly: 163.35, distPerKWh: 0.28342, distMonthly: 653.71 }
     ],
     bandMode: 'auto',
     baseKWhMonth: 60,
@@ -145,7 +148,7 @@ function tariff(cfg, util, annual) {
     if (uc.bandMode === 'auto' || uc.bandMode == null || uc.bandMode === '') { bi = uc.bands.findIndex(b => annual <= b.upToKWh); if (bi < 0) bi = uc.bands.length - 1; }
     else bi = Math.min(uc.bands.length - 1, Math.max(0, +uc.bandMode));
     const b = uc.bands[bi];
-    return { v: uc.supplierPerKWh + b.distPerKWh, f: uc.supplierMonthly + b.distMonthly, band: bi };
+    return { v: uc.supplierPerKWh + b.distPerKWh, f: (b.supplierMonthly != null && b.supplierMonthly !== '' ? +b.supplierMonthly : uc.supplierMonthly) + b.distMonthly, band: bi };
   }
   if (util === 'elec') return { v: uc.supplierPerKWh + uc.distPerKWh, f: uc.supplierMonthly + uc.distMonthly };
   return { v: uc.pricePerM3, f: +uc.monthlyFixed || 0 };
@@ -191,8 +194,15 @@ function gasScenario(cfg, sum, H) {
 }
 function impliedGasH(cfg, sum) {
   if (!sum.hasAdv || !sum.tf) return null;
-  const annual = (sum.advYear - sum.tf.f * 12) / sum.tf.v;
-  return Math.max(0, annual - cfg.gas.baseKWhMonth * 12);
+  const g = cfg.gas; let lo = 0, annual = 0;
+  for (let i = 0; i < g.bands.length; i++) {
+    const b = g.bands[i];
+    const v = g.supplierPerKWh + b.distPerKWh, f = (b.supplierMonthly != null && b.supplierMonthly !== '' ? +b.supplierMonthly : g.supplierMonthly) + b.distMonthly;
+    annual = (sum.advYear - f * 12) / v;
+    if (annual <= b.upToKWh || i === g.bands.length - 1) break;
+    lo = b.upToKWh;
+  }
+  return Math.max(0, annual - g.baseKWhMonth * 12);
 }
 /* CALC-END */
 
@@ -762,7 +772,7 @@ function vBills(now) {
 /* ---------- settings ---------- */
 const FIELDS = {
   billing: [['period.start', 'ČEZ billing year starts', 'date'], ['period.end', 'ČEZ billing year ends', 'date'], ['budgetMonthly', 'Utilities budget (Kč/month)']],
-  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, central estimate (kWh/year)'], ['gas.lowKWh', 'Heating, mild year (kWh/year)'], ['gas.coldKWh', 'Heating, cold year (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
+  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, central estimate (kWh/year)'], ['gas.lowKWh', 'Heating, mild year (kWh/year)'], ['gas.coldKWh', 'Heating, cold year (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
   elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker + OTE (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
   water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
 };
@@ -776,7 +786,7 @@ function vSettings() {
     ${(d[u].advances || []).map((a, i) => `<div class="arow"><label class="fld"><span>From</span><input class="in" type="date" id="adv-${u}-${i}-from" data-adv="${u}" data-i="${i}" data-k="from" value="${esc(a.from)}"></label><label class="fld"><span>Kč a month</span><input class="in" type="text" inputmode="decimal" id="adv-${u}-${i}-amount" data-adv="${u}" data-i="${i}" data-k="amount" value="${esc(a.amount)}"></label><button class="btn sm ghost danger" type="button" data-act="adv-del" data-u="${u}" data-i="${i}" aria-label="Remove">✕</button></div>`).join('') || '<p class="muted small" style="margin:0">No advance set.</p>'}
     <div class="arow"><label class="fld"><span>Last payment</span><input class="in" type="date" id="f-${u}-lastAdvance" data-path="${u}.lastAdvance" data-type="date" value="${esc(d[u].lastAdvance || '')}"></label><span></span><button class="btn sm" type="button" data-act="adv-add" data-u="${u}">Add a change</button></div>
     <p class="hint" style="margin:0">Payments repeat monthly on the day of the first date. To change the amount from a given month, add a row with that date.</p></fieldset>`;
-  const bands = d.gas.bands.map((b, i) => `<div class="fgrid"><label class="fld"><span>Band ${i + 1} up to (kWh/yr)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-up" data-path="gas.bands.${i}.upToKWh" data-type="num" value="${b.upToKWh}"></label><label class="fld"><span>GasNet (Kč/kWh)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-v" data-path="gas.bands.${i}.distPerKWh" data-type="num" value="${b.distPerKWh}"></label><label class="fld"><span>GasNet (Kč/month)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-f" data-path="gas.bands.${i}.distMonthly" data-type="num" value="${b.distMonthly}"></label></div>`).join('');
+  const bands = d.gas.bands.map((b, i) => `<div class="fgrid"><label class="fld"><span>Band ${i + 1} up to (kWh/yr)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-up" data-path="gas.bands.${i}.upToKWh" data-type="num" value="${b.upToKWh}"></label><label class="fld"><span>ČEZ (Kč/month)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-s" data-path="gas.bands.${i}.supplierMonthly" data-type="num" value="${b.supplierMonthly ?? ''}"></label><label class="fld"><span>GasNet (Kč/kWh)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-v" data-path="gas.bands.${i}.distPerKWh" data-type="num" value="${b.distPerKWh}"></label><label class="fld"><span>GasNet (Kč/month)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-f" data-path="gas.bands.${i}.distMonthly" data-type="num" value="${b.distMonthly}"></label></div>`).join('');
   const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const hs = d.gas.heatSplit.map((v, i) => `<label>${mon[i]}<input class="in" type="text" inputmode="decimal" id="hs-${i}" data-path="gas.heatSplit.${i}" data-type="num" value="${v}"></label>`).join('');
   const meters = (d.water.meters || []).map((m, i) => `<div class="arow"><label class="fld"><span>Meter name</span><input class="in" type="text" id="wm-${i}-name" data-path="water.meters.${i}.name" data-type="text" value="${esc(m.name)}"></label><label class="fld"><span>Number</span><input class="in" type="text" id="wm-${i}-serial" data-path="water.meters.${i}.serial" data-type="text" value="${esc(m.serial || '')}"></label>${d.water.meters.length > 1 ? `<button class="btn sm ghost danger" type="button" data-act="wm-del" data-i="${i}" aria-label="Remove meter">✕</button>` : '<span></span>'}</div>`).join('');
@@ -1134,7 +1144,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.0';
+const APP_VERSION = '1.1';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
