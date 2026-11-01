@@ -408,8 +408,8 @@ function barChart(host, o) {
   host.innerHTML = s;
   const svg = host.querySelector('svg'), tip = host.querySelector('.tip');
   const show = i => {
-    const c = o.cats[i]; const rows = c.segs.filter(sg => sg.v > 0 || sg.always).map(sg => ({ c: sg.color, label: sg.label + (sg.fc ? ' (forecast)' : ''), value: o.vFmt(sg.v) }));
-    if (c.segs.length > 1) rows.push({ label: 'Total', value: o.vFmt(totals[i]) });
+    const c = o.cats[i]; const rows = c.tip ? c.tip.slice() : c.segs.filter(sg => sg.v > 0 || sg.always).map(sg => ({ c: sg.color, label: sg.label + (sg.fc ? ' (forecast)' : ''), value: o.vFmt(sg.v) }));
+    if (!c.tip && c.segs.length > 1) rows.push({ label: 'Total', value: o.vFmt(totals[i]) });
     tip.innerHTML = `<div class="tip-h">${esc(c.label)}</div>` + tipRows(rows);
     const r = svg.getBoundingClientRect(); placeTip(tip, host, (m.l + band * (i + .5)) * r.width / W);
   };
@@ -513,10 +513,14 @@ function vOverview(now) {
     const last = u => sums[u].e.hasData ? rT(rawReadings(u)[rawReadings(u).length - 1]) : 0;
     const conf = u => { const L = last(u); return L > a ? sums[u].cost(a, Math.min(b, L)) : 0; };
     const proj = u => { const x = sums[u]; if (!x.e.hasData) return 0; const en = modelUnits(x, a, b) * (u === 'gas' ? S.cfg.gas.kwhPerM3 : 1); return Math.max(0, x.tf.v * en + x.tf.f * (b - a) / DAY / MD - conf(u)); };
-    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: false, v: conf(u), always: sums[u].e.hasData })).concat(UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: true, v: proj(u) }))) });
+    const pfull = u => { const x = sums[u]; if (!x.e.hasData) return 0; const en = modelUnits(x, a, b) * (u === 'gas' ? S.cfg.gas.kwhPerM3 : 1); return x.tf.v * en + x.tf.f * (b - a) / DAY / MD; };
+    const tip = UTILS.filter(u => sums[u].e.hasData).map(u => { const c0 = conf(u), p0 = pfull(u); return { c: U[u].c, label: U[u].label, value: last(u) > a ? kc(c0) + ' · projected ' + kc(p0) : 'projected ' + kc(p0) }; });
+    const cs = UTILS.reduce((t, u) => t + conf(u), 0), ps = UTILS.reduce((t, u) => t + pfull(u), 0);
+    tip.push({ label: 'All three', value: cs > 0 ? kc(cs) + ' · projected ' + kc(ps) : 'projected ' + kc(ps) });
+    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), tip, segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: false, v: conf(u), always: sums[u].e.hasData })).concat(UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: true, v: proj(u) }))) });
   }
   JOBS.push({ id: 'ch-monthly', fn: el => barChart(el, { key: 'monthly', cats, yFmt: kfmt, vFmt: kc, ref: { v: S.cfg.budgetMonthly, label: 'Budget ' + kc(S.cfg.budgetMonthly) }, aria: 'Monthly utility cost by month, stacked by utility, against the monthly budget' }) });
-  html += `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Forecast', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-monthly"></div><p class="small muted" style="margin:0">Heating months carry the cost; the advances spread it evenly, which is why summer shows a surplus building up.</p></section>`;
+  html += `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Projection', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-monthly"></div><p class="small muted" style="margin:0">Solid is the cost of what your readings show; the faded part reaches up to the projected cost for that month. Heating months carry the cost and the advances spread it evenly, so summer builds up a surplus.</p></section>`;
   // coming up + checks
   const nextRows = [];
   const nextDate = Math.min(...UTILS.map(u => sums[u].nextAdv ? sums[u].nextAdv.t : Infinity));
@@ -678,12 +682,26 @@ function monthlyUseCard(u, x, now) {
     const b = addMonths(a, 1, 1);
     const s0 = Math.max(a, first);
     const act = lastT > s0 ? x.e.units(s0, Math.min(b, lastT)) : 0;
-    const proj = Math.max(0, modelUnits(x, s0, b) - act);
-    cats.push({ label: fd(a, { day: undefined }) + (a <= lastT && b > lastT ? ' (readings + projection)' : ''), short: mlabel(a), segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, act), fc: false, always: true }, { label: U[u].label, color: U[u].c, v: proj, fc: true }] });
+    const pm = modelUnits(x, s0, b);
+    const dd = u === 'elec' ? 0 : 1; const f = v => nfmt(v, dd) + ' ' + U[u].unit;
+    const tip = []; const rd = v => Math.round(v * (dd ? 10 : 1)) / (dd ? 10 : 1);
+    const diffRow = (used, proj) => { const df = rd(used) - rd(proj); if (Math.abs(df) > 0) tip.push({ label: df < 0 ? 'Below projection' : 'Above projection', value: f(Math.abs(df)) }); };
+    if (lastT > s0 && lastT < b) {
+      const pTo = modelUnits(x, s0, lastT);
+      tip.push({ c: U[u].c, label: 'Used to ' + fdShort(lastT), value: f(act) });
+      tip.push({ label: 'Projected to ' + fdShort(lastT), value: f(pTo) });
+      diffRow(act, pTo);
+      tip.push({ label: 'Projected for the whole month', value: f(pm) });
+    } else if (lastT > s0) {
+      tip.push({ c: U[u].c, label: 'Used', value: f(act) });
+      tip.push({ label: 'Projected', value: f(pm) });
+      diffRow(act, pm);
+    } else tip.push({ label: 'Projected', value: f(pm) });
+    cats.push({ label: fd(a, { day: undefined }), short: mlabel(a), tip, segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, act), fc: false, always: true }, { label: U[u].label, color: U[u].c, v: Math.max(0, pm - act), fc: true }] });
   }
   const dec = u === 'elec' ? 0 : 1;
   JOBS.push({ id: 'ch-use-' + u, fn: el => barChart(el, { key: 'use-' + u, cats, yFmt: v => nfmt(v), vFmt: v => nfmt(v, dec) + ' ' + U[u].unit, height: 190, aria: `${U[u].label} use per month` }) });
-  return `<section class="card"><div class="card-h"><h3>Monthly use</h3>${legend([{ c: U[u].c, label: 'From readings', sq: 1 }, { c: U[u].c, label: 'Forecast', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-use-${u}"></div><p class="small muted" style="margin:0">Months between readings are split in proportion to the days.${u === 'gas' ? ' Forecast months follow the heating curve, scaled to your readings.' : ''}</p></section>`;
+  return `<section class="card"><div class="card-h"><h3>Monthly use</h3>${legend([{ c: U[u].c, label: 'Used (from readings)', sq: 1 }, { c: U[u].c, label: 'Projection', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-use-${u}"></div><p class="small muted" style="margin:0">The solid bar is what you used; the faded part reaches up to what was projected for that month, so a faded top on a past month means you used less than projected. Months between readings are split in proportion to the days.${u === 'gas' ? ' The projection follows the heating curve, scaled to your readings.' : ''}</p></section>`;
 }
 function leakCard(u) {
   const rs = rawReadings(u).filter(r => r.time);
@@ -1151,7 +1169,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.3';
+const APP_VERSION = '1.4';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
