@@ -510,8 +510,8 @@ function vOverview(now) {
   const ms0 = monthStart(sums.gas.s || pd(S.cfg.period.start));
   const cats = []; for (let k = 0; k < 12; k++) {
     const a = addMonths(ms0, k, 1), b = addMonths(ms0, k + 1, 1);
-    const fc = a > now;
-    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (so far + forecast)' : ''), short: mlabel(a), segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc, v: sums[u].e.hasData ? sums[u].cost(a, b) : 0, always: sums[u].e.hasData })) });
+    const mid = (a + b) / 2;
+    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: !(sums[u].e.hasData && rT(rawReadings(u)[rawReadings(u).length - 1]) >= mid), v: sums[u].e.hasData ? sums[u].cost(a, b) : 0, always: sums[u].e.hasData })) });
   }
   JOBS.push({ id: 'ch-monthly', fn: el => barChart(el, { key: 'monthly', cats, yFmt: kfmt, vFmt: kc, ref: { v: S.cfg.budgetMonthly, label: 'Budget ' + kc(S.cfg.budgetMonthly) }, aria: 'Monthly utility cost by month, stacked by utility, against the monthly budget' }) });
   html += `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Forecast', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-monthly"></div><p class="small muted" style="margin:0">Heating months carry the cost; the advances spread it evenly, which is why summer shows a surplus building up.</p></section>`;
@@ -668,11 +668,15 @@ function balanceCard(u, x, now) {
 }
 function monthlyUseCard(u, x, now) {
   const raw = rawReadings(u); const first = rT(raw[0]);
+  const lastT = rT(raw[raw.length - 1]);
   let a = monthStart(Math.max(first, x.s - 92 * DAY)); const endM = monthStart(x.en - DAY);
   const cats = [];
   for (; a <= endM && cats.length < 16; a = addMonths(a, 1, 1)) {
-    const b = addMonths(a, 1, 1); const v = x.e.units(Math.max(a, first), b);
-    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (so far + forecast)' : ''), short: mlabel(a), segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, v), fc: a > now, always: true }] });
+    const b = addMonths(a, 1, 1);
+    const s0 = Math.max(a, first);
+    const act = lastT > s0 ? x.e.units(s0, Math.min(b, lastT)) : 0;
+    const fcv = b > lastT ? x.e.units(Math.max(a, lastT, first), b) : 0;
+    cats.push({ label: fd(a, { day: undefined }) + (a <= lastT && b > lastT ? ' (readings + forecast)' : ''), short: mlabel(a), segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, act), fc: false, always: true }, { label: U[u].label, color: U[u].c, v: Math.max(0, fcv), fc: true }] });
   }
   const dec = u === 'elec' ? 0 : 1;
   JOBS.push({ id: 'ch-use-' + u, fn: el => barChart(el, { key: 'use-' + u, cats, yFmt: v => nfmt(v), vFmt: v => nfmt(v, dec) + ' ' + U[u].unit, height: 190, aria: `${U[u].label} use per month` }) });
@@ -1144,7 +1148,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.1';
+const APP_VERSION = '1.2';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
