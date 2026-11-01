@@ -30,7 +30,7 @@ const DEFAULT_CONFIG = {
   },
   elec: {
     supplierPerKWh: 3.49, supplierMonthly: 163.35,
-    distPerKWh: 3.45963, distMonthly: 165.61,
+    distPerKWh: 2.74805, distMonthly: 138.99,
     fallbackPerDay: 1.7,
     advances: [{ from: '2026-10-25', amount: 510 }],
     lastAdvance: '2027-09-25',
@@ -702,7 +702,7 @@ function recentCard(u, now) {
 function tariffFoot(u, x) {
   const c = S.cfg;
   if (u === 'gas') { const b = c.gas.bands[x.tf.band]; return `<p class="foot">Gas: ${nfmt(x.tf.v, 2)} Kč/kWh all-in (ČEZ ${nfmt(c.gas.supplierPerKWh, 2)} + GasNet ${nfmt(b.distPerKWh, 2)}, band ${bandLabel(x.tf.band)}) plus ${kc2(x.tf.f)} a month. 1 m³ = ${nfmt(c.gas.kwhPerM3, 2)} kWh. GasNet rates reset each January; update them in Settings.</p>`; }
-  if (u === 'elec') { const dm = +c.elec.distMonthly; const br = Math.abs(dm - 165.61) < .5 ? ', assuming a 3×25 A breaker' : Math.abs(dm - 76.07) < .5 ? ', 1×25 A breaker' : ''; return `<p class="foot">Electricity: ${nfmt(x.tf.v, 2)} Kč/kWh (ČEZ ${nfmt(c.elec.supplierPerKWh, 2)} + distribution ${nfmt(c.elec.distPerKWh, 2)}: ČEZ Distribuce D01d 2026, system services and electricity tax; the renewables fee is state-paid in 2026) plus ${kc2(x.tf.f)} a month (ČEZ ${kc2(c.elec.supplierMonthly)}, breaker and OTE ${kc2(dm)}${br}).</p>`; }
+  if (u === 'elec') { const dm = +c.elec.distMonthly; const br = Math.abs(dm - 138.99) < .5 ? ', 1×20 A breaker on D02d' : ''; return `<p class="foot">Electricity: ${nfmt(x.tf.v, 2)} Kč/kWh (ČEZ ${nfmt(c.elec.supplierPerKWh, 2)} + distribution ${nfmt(c.elec.distPerKWh, 2)}: ČEZ Distribuce D02d 2026, system services and electricity tax; the renewables fee is state-paid in 2026) plus ${kc2(x.tf.f)} a month (ČEZ ${kc2(c.elec.supplierMonthly)}, breaker and non-grid fee ${kc2(dm)}${br}).</p>`; }
   return `<p class="foot">Water: ${nfmt(c.water.pricePerM3, 2)} Kč/m³ (OVAK 2026, water and sewage incl. VAT). Your landlord bills it through the service charges, so the advance and settlement dates are theirs; set both in Settings.</p>`;
 }
 function readingRow(d, now) {
@@ -780,7 +780,7 @@ function vBills(now) {
 const FIELDS = {
   billing: [['period.start', 'ČEZ billing year starts', 'date'], ['period.end', 'ČEZ billing year ends', 'date'], ['budgetMonthly', 'Utilities budget (Kč/month)']],
   gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, central estimate (kWh/year)'], ['gas.lowKWh', 'Heating, mild year (kWh/year)'], ['gas.coldKWh', 'Heating, cold year (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
-  elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker + OTE (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
+  elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker and non-grid fee (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
   water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
 };
 const getP = (o, p) => p.split('.').reduce((a, k) => a == null ? a : a[k], o);
@@ -1151,7 +1151,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.2';
+const APP_VERSION = '1.3';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
