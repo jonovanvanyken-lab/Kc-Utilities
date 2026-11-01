@@ -510,8 +510,10 @@ function vOverview(now) {
   const ms0 = monthStart(sums.gas.s || pd(S.cfg.period.start));
   const cats = []; for (let k = 0; k < 12; k++) {
     const a = addMonths(ms0, k, 1), b = addMonths(ms0, k + 1, 1);
-    const mid = (a + b) / 2;
-    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: !(sums[u].e.hasData && rT(rawReadings(u)[rawReadings(u).length - 1]) >= mid), v: sums[u].e.hasData ? sums[u].cost(a, b) : 0, always: sums[u].e.hasData })) });
+    const last = u => sums[u].e.hasData ? rT(rawReadings(u)[rawReadings(u).length - 1]) : 0;
+    const conf = u => { const L = last(u); return L > a ? sums[u].cost(a, Math.min(b, L)) : 0; };
+    const proj = u => { const x = sums[u]; if (!x.e.hasData) return 0; const en = modelUnits(x, a, b) * (u === 'gas' ? S.cfg.gas.kwhPerM3 : 1); return Math.max(0, x.tf.v * en + x.tf.f * (b - a) / DAY / MD - conf(u)); };
+    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: false, v: conf(u), always: sums[u].e.hasData })).concat(UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: true, v: proj(u) }))) });
   }
   JOBS.push({ id: 'ch-monthly', fn: el => barChart(el, { key: 'monthly', cats, yFmt: kfmt, vFmt: kc, ref: { v: S.cfg.budgetMonthly, label: 'Budget ' + kc(S.cfg.budgetMonthly) }, aria: 'Monthly utility cost by month, stacked by utility, against the monthly budget' }) });
   html += `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Forecast', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-monthly"></div><p class="small muted" style="margin:0">Heating months carry the cost; the advances spread it evenly, which is why summer shows a surplus building up.</p></section>`;
@@ -666,6 +668,7 @@ function balanceCard(u, x, now) {
   const lg = [{ c: U[u].c, label: 'Cost so far' }, { c: U[u].c, label: 'Forecast', dash: 1 }]; if (x.hasAdv) lg.unshift({ c: 'var(--ink-2)', label: 'Advances paid' });
   return `<section class="card"><div class="card-h"><h3>Running balance</h3>${legend(lg)}</div><div class="chart" id="ch-bal-${u}"></div><p class="small muted" style="margin:0">Billing year ${esc(fd(x.s))} – ${esc(fd(x.en - DAY))}. The gap between the lines at the right edge is the projected ${x.hasAdv ? (x.settlement >= 0 ? 'refund' : 'top-up') : 'cost'}.</p></section>`;
 }
+function modelUnits(x, a, b) { return x.e.ms.filter(m => m.set.length).reduce((t, m) => t + integrate(m.rate, a, b), 0); }
 function monthlyUseCard(u, x, now) {
   const raw = rawReadings(u); const first = rT(raw[0]);
   const lastT = rT(raw[raw.length - 1]);
@@ -675,8 +678,8 @@ function monthlyUseCard(u, x, now) {
     const b = addMonths(a, 1, 1);
     const s0 = Math.max(a, first);
     const act = lastT > s0 ? x.e.units(s0, Math.min(b, lastT)) : 0;
-    const fcv = b > lastT ? x.e.units(Math.max(a, lastT, first), b) : 0;
-    cats.push({ label: fd(a, { day: undefined }) + (a <= lastT && b > lastT ? ' (readings + forecast)' : ''), short: mlabel(a), segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, act), fc: false, always: true }, { label: U[u].label, color: U[u].c, v: Math.max(0, fcv), fc: true }] });
+    const proj = Math.max(0, modelUnits(x, s0, b) - act);
+    cats.push({ label: fd(a, { day: undefined }) + (a <= lastT && b > lastT ? ' (readings + projection)' : ''), short: mlabel(a), segs: [{ label: U[u].label, color: U[u].c, v: Math.max(0, act), fc: false, always: true }, { label: U[u].label, color: U[u].c, v: proj, fc: true }] });
   }
   const dec = u === 'elec' ? 0 : 1;
   JOBS.push({ id: 'ch-use-' + u, fn: el => barChart(el, { key: 'use-' + u, cats, yFmt: v => nfmt(v), vFmt: v => nfmt(v, dec) + ' ' + U[u].unit, height: 190, aria: `${U[u].label} use per month` }) });
