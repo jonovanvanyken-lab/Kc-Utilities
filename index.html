@@ -16,7 +16,7 @@
 <link rel="icon" href="icons/favicon-32.png">
 <link rel="preload" href="fonts/barlow-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="app.css?v=1.5">
+<link rel="stylesheet" href="app.css?v=1.6">
 <title>Kč Utilities</title>
 </head>
 <body>
@@ -75,6 +75,7 @@
     <div class="wrap top-row">
       <h1 class="brand"><span class="brand-mark" aria-hidden="true">Kč</span>Utilities</h1>
       <div class="top-actions">
+        <span class="navbtns" id="navbtns"></span>
         <button class="sync" id="sync" type="button" data-s="local"><span class="sync-dot"></span><span id="sync-text">On this device</span></button>
         <button class="iconbtn" id="lockBtn" type="button" aria-label="Lock" title="Lock"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
       </div>
@@ -88,6 +89,6 @@
 <div class="toast" id="toast" role="status" hidden></div>
 <input type="file" id="pickFile" hidden>
 
-<script src="app.js?v=1.5"></script>
+<script src="app.js?v=1.6"></script>
 </body>
 </html>

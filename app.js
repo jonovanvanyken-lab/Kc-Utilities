@@ -6,6 +6,7 @@
 /* ================= defaults ================= */
 const DEFAULT_CONFIG = {
   version: 1,
+  display: { cost: true, balance: true, use: true, expected: true },
   budgetMonthly: 2450,
   period: { start: '2026-10-15', end: '2027-10-14' },
   gas: {
@@ -222,6 +223,9 @@ const ICON = {
   elec: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.6 2 5 13.6h5.7L9.6 22 19 9.8h-5.8z"/></svg>',
   water: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.6s6.4 7 6.4 11.8a6.4 6.4 0 0 1-12.8 0C5.6 9.6 12 2.6 12 2.6z"/></svg>',
   camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3.5 7.6h3.7l1.8-2.7h6l1.8 2.7h3.7v11.5H3.5z"/><circle cx="12" cy="13.2" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>',
+  list: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9 6.5h10M9 12h10M9 17.5h10"/><circle cx="5" cy="6.5" r="1.2" fill="currentColor"/><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="5" cy="17.5" r="1.2" fill="currentColor"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></svg>',
+  back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14.5 5.5 8 12l6.5 6.5"/></svg>',
   doc: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/></svg>'
 };
 const U = {
@@ -468,7 +472,12 @@ function render() {
   hydratePhotos(main);
 }
 function renderTabs() {
-  $('#tabs').innerHTML = TABS.map(([k, l]) => `<button class="tab" role="tab" type="button" data-tab="${k}" aria-selected="${S.tab === k}">${U[k] ? `<i class="dot" style="--c:${U[k].c}"></i>` : ''}${l}</button>`).join('');
+  const titles = { gas: 'Gas', elec: 'Electricity', water: 'Water', log: 'Readings', bills: 'Bills', settings: 'Settings' };
+  const nav = $('#tabs');
+  if (S.tab === 'overview') { nav.hidden = true; nav.innerHTML = ''; }
+  else { nav.hidden = false; nav.innerHTML = `<button class="back" type="button" data-tab="overview">${ICON.back}<span>Home</span></button><span class="ptab">${U[S.tab] ? `<i class="dot" style="--c:${U[S.tab].c}"></i>` : ''}${esc(titles[S.tab] || '')}</span>`; }
+  const nb = $('#navbtns');
+  if (nb) nb.innerHTML = [['log', 'Readings', ICON.list], ['bills', 'Bills', ICON.doc], ['settings', 'Settings', ICON.gear]].map(([k, l, ic]) => `<button class="iconbtn" type="button" data-tab="${k}" aria-label="${l}" title="${l}"${S.tab === k ? ' aria-current="page"' : ''}>${ic}</button>`).join('');
   setSyncUI();
 }
 function setTab(t) {
@@ -480,147 +489,94 @@ function setTab(t) {
 function vOverview(now) {
   const sums = sumsAll(now);
   const any = UTILS.some(u => sums[u].e.hasData);
-  if (!any) return `<section class="empty"><h3>No readings yet</h3><p class="lede">Add a reading for each meter with a photo. The dashboard then tracks your costs against the ČEZ advances and forecasts the next bill.</p><div class="btnrow"><button class="btn primary" data-act="add" data-u="gas">Add your first reading</button><button class="btn" data-act="import">Import from the Claude page</button></div></section>`;
+  if (!any) return `<section class="empty"><h3>No readings yet</h3><div class="btnrow"><button class="btn primary" data-act="add" data-u="gas">Add your first reading</button><button class="btn" data-act="import">Import from the Claude page</button></div></section>`;
   const counted = UTILS.filter(u => sums[u].e.hasData && sums[u].hasAdv);
   const total = counted.reduce((a, u) => a + sums[u].settlement, 0);
-  const endT = pd(S.cfg.period.end);
   const good = total >= 0;
-  const maxAbs = Math.max(1, ...UTILS.filter(u => sums[u].e.hasData && sums[u].hasAdv).map(u => Math.abs(sums[u].settlement)));
-  const rows = UTILS.map(u => {
-    const x = sums[u];
-    let bar = '', val;
-    if (!x.e.hasData) val = `<span class="muted">No readings</span>`;
-    else if (!x.hasAdv) val = `<span class="muted">No advance set</span><small>cost ~${kc(x.costYear / 12)}/mo</small>`;
-    else {
-      const w = Math.min(50, Math.abs(x.settlement) / maxAbs * 50);
-      bar = `<i class="dv-bar ${x.settlement >= 0 ? 'pos' : 'neg'}" data-w="${w.toFixed(1)}"></i>`;
-      val = `<span class="${x.settlement >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.settlement)}</span><small>${x.settlement >= 0 ? 'refund' : 'to pay'}</small>`;
-    }
-    return `<div class="dv-row"><span class="dv-name"><i style="--c:${U[u].c}"></i>${U[u].label}</span><span class="dv-track"><i class="dv-axis"></i>${bar}</span><span class="dv-val">${val}</span></div>`;
-  }).join('');
-  const advMonthly = counted.reduce((a, u) => a + (sums[u].sched.find(p => p.t > now) || sums[u].sched[sums[u].sched.length - 1] || { a: 0 }).a, 0);
-  const costMonthly = UTILS.filter(u => sums[u].e.hasData).reduce((a, u) => a + sums[u].costYear / 12, 0);
-  const waterNote = sums.water.e.hasData && !sums.water.hasAdv ? ' Water is left out until you add the landlord’s advance in Settings.' : (!sums.water.e.hasData ? ' Water joins once you log its first reading.' : '');
-  let html = `<section class="hero">
-    <div>
-      <p class="kick">At the ČEZ bill after ${esc(fd(endT))}</p>
-      <div class="hero-fig">${good ? '+' : '−'}${Math.abs(Math.round(total)).toLocaleString('en-GB')}<span class="cur">Kč</span></div>
-      <span class="verdict ${good ? 'good' : 'bad'}">${good ? '▲ On track for a refund' : '▼ Heading for a top-up'}</span>
-      <p class="hero-sub" style="margin-top:12px">If you keep using energy at the pace your readings show, this is what the reconciliation should come to.${waterNote}</p>
-    </div>
-    <div class="card">
-      <div class="card-h"><h3>Projected settlement</h3><span class="aside">advances − forecast cost</span></div>
-      <div class="dv">${rows}<div class="dv-scale"><span></span><span><span>◂ to pay</span><span>refund ▸</span></span><span></span></div></div>
-      <p class="small muted" style="margin:0">Advances ${kc(advMonthly)}/month · forecast cost ~${kc(costMonthly)}/month · budget ${kc(S.cfg.budgetMonthly)}</p>
-    </div>
-  </section>`;
-  html += `<section class="sec"><div class="sec-h"><h2>Meters</h2><span class="aside">Tap a card for detail</span></div><div class="ucards">${UTILS.map(u => uCard(u, sums[u], now)).join('')}</div></section>`;
-  // monthly cost chart
+  let html = `<section class="hero"><div><p class="kick">Forecast at the bills</p>
+    <div class="hero-fig">${good ? '+' : '−'}${Math.abs(Math.round(total)).toLocaleString('en-GB')}<span class="cur">Kč</span></div>
+    <span class="verdict ${good ? 'good' : 'bad'}">${good ? '▲ Refund' : '▼ Top-up'}</span></div></section>`;
+  html += `<section class="ulist">${UTILS.map(u => uRow(u, sums[u], now)).join('')}</section>`;
+  if (S.cfg.display.cost) html += costChartCard(sums, now);
+  return html;
+}
+function hideBtn(k) { return `<button class="hide-x" type="button" data-act="hide-chart" data-k="${k}" aria-label="Hide this chart" title="Hide">✕</button>`; }
+function gasMonth(x, now) {
+  const a = monthStart(now), b = addMonths(a, 1, 1);
+  const raw = rawReadings('gas'); const lastT = raw.length ? rT(raw[raw.length - 1]) : 0;
+  const pm = modelUnits(x, a, b);
+  const inMonth = lastT > a;
+  const used = inMonth ? x.e.units(a, Math.min(lastT, b)) : 0;
+  const exp = modelUnits(x, a, inMonth ? Math.min(lastT, b) : Math.min(Math.max(now, a), b));
+  return { a, b, pm, used, exp, lastT, inMonth, pct: pm > 0 ? used / pm * 100 : 0, expPct: pm > 0 ? exp / pm * 100 : 0 };
+}
+function monthBarHTML(m) {
+  const mon = new Date(m.a).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
+  const sub = m.inMonth ? `${nfmt(m.used, 1)} of ~${nfmt(m.pm)} m³ · ${nfmt(m.expPct)}% expected by ${esc(fdShort(Math.min(m.lastT, m.b - 1)))}` : `No ${mon} reading yet · ~${nfmt(m.pm)} m³ projected`;
+  return `<div class="mbar"><div class="mbar-h"><span>${mon} gas used</span><b>${m.inMonth ? nfmt(m.pct) + '%' : '—'}</b></div>
+    <div class="mbar-t"><i style="width:${Math.min(100, m.pct).toFixed(1)}%"></i><em style="left:${Math.min(100, m.expPct).toFixed(1)}%"></em></div>
+    <span class="mbar-s">${sub}</span></div>`;
+}
+function uRow(u, x, now) {
+  const last = latest(u);
+  const head = `<span class="uico" style="--c:${U[u].c};--wash:${U[u].wash}">${ICON[u]}</span><span class="uname">${U[u].label}</span>`;
+  if (!x.e.hasData) return `<div class="ucard" role="link" tabindex="0" data-tab="${u}"><div class="uhead">${head}<span class="umeta">No readings</span></div><button class="btn sm" type="button" data-act="add" data-u="${u}" style="width:max-content">Add reading</button></div>`;
+  const val = x.hasAdv ? `<span class="uval ${x.settlement >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.settlement)}</span>` : `<span class="uval">~${kc(x.costYear / 12)}<small>/mo</small></span>`;
+  const sub = `${x.hasAdv ? (x.settlement >= 0 ? 'Refund' : 'To pay') + ' · balance today ' + skc(x.balanceNow) : 'No advance set'} · read ${ago(rT(last), now)}`;
+  return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details"><div class="uhead">${head}${val}</div><span class="usub">${sub}</span>${u === 'gas' ? monthBarHTML(gasMonth(x, now)) : ''}</div>`;
+}
+function costChartCard(sums, now) {
   const ms0 = monthStart(sums.gas.s || pd(S.cfg.period.start));
   const cats = []; for (let k = 0; k < 12; k++) {
     const a = addMonths(ms0, k, 1), b = addMonths(ms0, k + 1, 1);
     const last = u => sums[u].e.hasData ? rT(rawReadings(u)[rawReadings(u).length - 1]) : 0;
     const conf = u => { const L = last(u); return L > a ? sums[u].cost(a, Math.min(b, L)) : 0; };
-    const proj = u => { const x = sums[u]; if (!x.e.hasData) return 0; const en = modelUnits(x, a, b) * (u === 'gas' ? S.cfg.gas.kwhPerM3 : 1); return Math.max(0, x.tf.v * en + x.tf.f * (b - a) / DAY / MD - conf(u)); };
     const pfull = u => { const x = sums[u]; if (!x.e.hasData) return 0; const en = modelUnits(x, a, b) * (u === 'gas' ? S.cfg.gas.kwhPerM3 : 1); return x.tf.v * en + x.tf.f * (b - a) / DAY / MD; };
+    const proj = u => Math.max(0, pfull(u) - conf(u));
     const tip = UTILS.filter(u => sums[u].e.hasData).map(u => { const c0 = conf(u), p0 = pfull(u); return { c: U[u].c, label: U[u].label, value: last(u) > a ? kc(c0) + ' · projected ' + kc(p0) : 'projected ' + kc(p0) }; });
     const cs = UTILS.reduce((t, u) => t + conf(u), 0), ps = UTILS.reduce((t, u) => t + pfull(u), 0);
     tip.push({ label: 'All three', value: cs > 0 ? kc(cs) + ' · projected ' + kc(ps) : 'projected ' + kc(ps) });
-    cats.push({ label: fd(a, { day: undefined }) + (a <= now && b > now ? ' (this month)' : ''), short: mlabel(a), tip, segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: false, v: conf(u), always: sums[u].e.hasData })).concat(UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: true, v: proj(u) }))) });
+    cats.push({ label: fd(a, { day: undefined }), short: mlabel(a), tip, segs: UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: false, v: conf(u), always: sums[u].e.hasData })).concat(UTILS.map(u => ({ label: U[u].label, color: U[u].c, fc: true, v: proj(u) }))) });
   }
   JOBS.push({ id: 'ch-monthly', fn: el => barChart(el, { key: 'monthly', cats, yFmt: kfmt, vFmt: kc, ref: { v: S.cfg.budgetMonthly, label: 'Budget ' + kc(S.cfg.budgetMonthly) }, aria: 'Monthly utility cost by month, stacked by utility, against the monthly budget' }) });
-  html += `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Projection', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-monthly"></div><p class="small muted" style="margin:0">Solid is the cost of what your readings show; the faded part reaches up to the projected cost for that month. Heating months carry the cost and the advances spread it evenly, so summer builds up a surplus.</p></section>`;
-  // coming up + checks
-  const nextRows = [];
-  const nextDate = Math.min(...UTILS.map(u => sums[u].nextAdv ? sums[u].nextAdv.t : Infinity));
-  if (isFinite(nextDate)) { const parts = UTILS.filter(u => sums[u].nextAdv && sums[u].nextAdv.t === nextDate).map(u => `${U[u].label.toLowerCase()} ${kc(sums[u].nextAdv.a)}`); nextRows.push(`<div class="check" style="cursor:default"><span class="chip">${esc(fdShort(nextDate))}</span><span>Advances due: ${esc(parts.join(' + '))}</span></div>`); }
-  const me = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 0);
-  nextRows.push(`<div class="check" style="cursor:default"><span class="chip">${esc(fdShort(me))}</span><span>Month-end readings. GasNet reads the gas meter remotely that day, so a photo of your own lets you compare.</span></div>`);
-  if (now < pd('2026-12-05')) nextRows.push(`<div class="check" style="cursor:default"><span class="chip">30 Nov</span><span>Gas advance check. The Gas tab tells you whether to lower the 1,890 Kč advance.</span></div>`);
-  const checks = (S.cfg.checks || []);
-  html += `<section class="ucards">
-    <div class="card"><h3>Coming up</h3><div>${nextRows.join('')}</div></div>
-    <div class="card"><div class="card-h"><h3>Open checks</h3><span class="aside">${checks.filter(c => !c.done).length} left</span></div><div>${checks.length ? checks.map(c => `<label class="check${c.done ? ' done' : ''}"><input type="checkbox" data-check="${esc(c.id)}"${c.done ? ' checked' : ''}><span>${esc(c.text)}</span></label>`).join('') : '<p class="muted small" style="margin:0">Nothing to check.</p>'}</div></div>
-  </section>`;
-  return html;
-}
-function uCard(u, x, now) {
-  const last = latest(u);
-  const head = `<div class="uhead"><span class="uico" style="--c:${U[u].c};--wash:${U[u].wash}">${ICON[u]}</span><span class="uname">${U[u].label}</span><span class="umeta">${last ? 'Read ' + ago(rT(last), now) : 'No readings'}</span></div>`;
-  if (!x.e.hasData) return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details">${head}<p class="muted small" style="margin:0">${u === 'water' ? 'Photograph the water meter (or meters) to start tracking. Water is billed through your landlord.' : 'Add a reading to start tracking.'}</p><button class="btn sm" type="button" data-act="add" data-u="${u}" style="width:max-content">Add ${U[u].label.toLowerCase()} reading</button></div>`;
-  const bal = x.hasAdv ? `<span class="${x.balanceNow >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.balanceNow)}</span>` : '—';
-  const st = x.hasAdv ? `<span class="${x.settlement >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.settlement)}</span>` : '—';
-  return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details">${head}${registerHTML(+last.value, u, 20, 'card-' + u)}
-    <dl class="kv">
-      <div><dt>Advances paid</dt><dd>${x.hasAdv ? kc(x.advPaid) : '—'}</dd></div>
-      <div><dt>Cost so far</dt><dd>${kc(x.costNow)}</dd></div>
-      <div><dt>Balance today</dt><dd>${bal}</dd></div>
-      <div><dt>At the bill</dt><dd>${st}</dd></div>
-    </dl></div>`;
+  return `<section class="card"><div class="card-h"><h3>Monthly cost</h3>${hideBtn('cost')}</div>${legend([{ c: 'var(--gas)', label: 'Gas', sq: 1 }, { c: 'var(--elec)', label: 'Electricity', sq: 1 }, { c: 'var(--water)', label: 'Water', sq: 1 }, { c: 'var(--ink-2)', label: 'Projection', sq: 1, fc: 1 }])}<div class="chart" id="ch-monthly"></div></section>`;
 }
 
 /* ---------- utility pages ---------- */
 function vUtility(u, now) {
   const x = summarize(S.cfg, S.readings, u, now);
   const last = latest(u);
-  const uc = S.cfg[u];
-  const metaBits = u === 'gas' ? [`Honeywell BK-G4ETe`, `no. ${esc(uc.meters[0].serial || '')}`, `EIC ${esc(uc.eic || '')}`] : u === 'elec' ? [`Single tariff`, `no. ${esc(uc.meters[0].serial || '')}`] : (uc.meters || []).map(m => esc(m.name + (m.serial ? ' · no. ' + m.serial : '')));
-  let html = `<section class="sec"><div class="uhead"><span class="uico" style="--c:${U[u].c};--wash:${U[u].wash}">${ICON[u]}</span><span class="kick">${metaBits.join(' · ')}</span></div><h2 class="ptitle">${U[u].label}</h2></section>`;
-  if (!x.e.hasData) {
-    return html + `<section class="empty"><h3>No ${U[u].label.toLowerCase()} readings yet</h3><p class="lede">${u === 'water' ? 'Take a photo of the water meter and type the number in, black digits then red. If you find a second meter (hot water, or a second riser), add it in Settings first.' : 'Take a photo of the meter and type in the number shown.'}</p><button class="btn primary" data-act="add" data-u="${u}">${ICON.camera}Add first reading</button></section>`;
-  }
-  html += `<section class="card"><div class="card-h"><div style="display:flex;flex-direction:column;gap:10px;min-width:0">${registerHTML(+last.value, u, 30, 'page-' + u)}<span class="small muted">Last read ${esc(fd(rT(last)))}${last.time ? ' at ' + esc(last.time) : ''} · ${ago(rT(last), now)} · ${esc(SOURCES[last.source] || last.source || '')}</span></div><button class="btn primary" data-act="add" data-u="${u}">${ICON.camera}Add reading</button></div></section>`;
-  const unit = U[u].unit;
-  const annualTxt = u === 'gas' ? `${nfmt(x.annual)} kWh` : `${nfmt(x.annualUnits, u === 'water' ? 1 : 0)} ${unit}`;
-  const annualSub = u === 'gas' ? `${nfmt(x.annualUnits)} m³ · band ${bandLabel(x.tf.band)}` : `~${nfmt(x.annualUnits / 12, u === 'water' ? 1 : 0)} ${unit} a month`;
-  const rateTxt = u === 'gas' ? `${nfmt(x.e.fit.H)} kWh` : `${nfmt(x.e.fit.rate, u === 'water' ? 3 : 2)} ${unit}`;
-  const rateSub = u === 'gas' ? `heating per year · ${x.e.fit.weight < .5 ? `mostly the ${nfmt(S.cfg.gas.heatingPriorKWh)} kWh starting estimate` : 'fitted to your readings'}` : `per day ${x.e.fit.fitted ? 'from your readings' : '(starting estimate)'}`;
+  if (!x.e.hasData) return `<section class="empty"><h3>No ${U[u].label.toLowerCase()} readings yet</h3><button class="btn primary" data-act="add" data-u="${u}">${ICON.camera}Add first reading</button></section>`;
+  let html = `<section class="card"><div class="card-h"><div style="display:flex;flex-direction:column;gap:10px;min-width:0">${registerHTML(+last.value, u, 30, 'page-' + u)}<span class="small muted">Read ${esc(fd(rT(last)))} · ${ago(rT(last), now)}</span></div><button class="btn primary" data-act="add" data-u="${u}">${ICON.camera}Add reading</button></div></section>`;
+  const yearUse = u === 'gas' ? `${nfmt(x.annualUnits)} m³` : `${nfmt(x.annualUnits, u === 'water' ? 1 : 0)} ${U[u].unit}`;
   html += `<section class="tiles">
-    <div class="tile"><span class="l">Balance today</span><span class="v ${x.hasAdv ? (x.balanceNow >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.balanceNow) : kc(-x.costNow)}</span><span class="s">${x.hasAdv ? `${kc(x.advPaid)} paid − ${kc(x.costNow)} used` : 'cost so far, no advance set'}</span></div>
-    <div class="tile"><span class="l">At the bill</span><span class="v ${x.hasAdv ? (x.settlement >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.settlement) : '—'}</span><span class="s">${x.hasAdv ? `${x.settlement >= 0 ? 'refund' : 'to pay'} · cost ~${kc(x.costYear)} for the year` : `cost ~${kc(x.costYear)} for the year`}</span></div>
-    <div class="tile"><span class="l">Year forecast</span><span class="v">${annualTxt}</span><span class="s">${annualSub}</span></div>
-    <div class="tile"><span class="l">${u === 'gas' ? 'Heating estimate' : 'Daily use'}</span><span class="v">${rateTxt}</span><span class="s">${rateSub}</span></div>
+    <div class="tile"><span class="l">At the bill</span><span class="v ${x.hasAdv ? (x.settlement >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.settlement) : '—'}</span><span class="s">${x.hasAdv ? (x.settlement >= 0 ? 'refund' : 'to pay') : 'no advance set'}</span></div>
+    <div class="tile"><span class="l">Balance today</span><span class="v ${x.hasAdv ? (x.balanceNow >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.balanceNow) : kc(-x.costNow)}</span><span class="s">${x.hasAdv ? kc(x.advPaid) + ' paid' : 'cost so far'}</span></div>
+    <div class="tile"><span class="l">Year</span><span class="v">~${kc(x.costYear)}</span><span class="s">${yearUse}</span></div>
   </section>`;
-  if (u === 'gas') html += gasAdvanceCard(x, now) + gasExpectedCard(x, now);
-  else if (x.hasAdv) html += advanceCard(u, x, now);
-  html += balanceCard(u, x, now) + monthlyUseCard(u, x, now);
-  if (u !== 'elec') html += leakCard(u);
-  html += recentCard(u, now) + tariffFoot(u, x);
+  if (u === 'gas') html += `<section class="card">${monthBarHTML(gasMonth(x, now))}</section>`;
+  html += adviceCard(u, x, now);
+  const d = S.cfg.display;
+  if (d.balance) html += balanceCard(u, x, now);
+  if (d.use) html += monthlyUseCard(u, x, now);
+  if (u === 'gas' && d.expected) html += gasExpectedCard(x, now);
+  html += recentCard(u, now);
   return html;
 }
-function bandLabel(i) { const b = S.cfg.gas.bands; const lo = i ? b[i - 1].upToKWh : 0; return `${nfmt(lo / 1000, 2)}–${nfmt(b[i].upToKWh / 1000, 2)} MWh`; }
-function currentAdvance(x, now) { const nx = x.sched.find(p => p.t > now); return nx ? nx.a : (x.sched.length ? x.sched[x.sched.length - 1].a : 0); }
-function gasAdvanceCard(x, now) {
-  const rule = addMonths(monthStart(now), 1, 1) - 60000;
-  const g = S.cfg.gas;
-  const at = H => gasScenario(S.cfg, x, H)(rule);
-  const ih = impliedGasH(S.cfg, x);
+function adviceCard(u, x, now) {
+  const sug = x.suggested; if (sug == null || !x.hasAdv) return '';
   const cur = currentAdvance(x, now);
-  const conf = x.e.fit.weight;
-  const r5 = v => nfmt(Math.round(v / 5) * 5);
-  let body;
-  if (conf < .5) {
-    body = `<p style="margin:0">Until your readings cover a good part of the heating season, the forecast assumes ČEZ’s estimate for this flat (about ${nfmt((g.heatingPriorKWh + g.baseKWhMonth * 12) / 1000, 1)} MWh a year). Check the meter on <b>${fdShort(rule)}</b>: about <b>${r5(at(ih != null ? ih : g.heatingPriorKWh))} m³</b> means the ${kc(cur)} advance is right. Nearer <b>${r5(at(g.lowKWh))} m³</b> means you heat less and are heading for a refund; nearer <b>${r5(at(g.coldKWh))} m³</b> means a top-up.</p>`;
-  } else {
-    body = `<p style="margin:0">Your readings since the heating came on put the year at about ${nfmt(x.annual)} kWh.</p>`;
-  }
-  const sug = x.suggested;
-  let sugLine;
-  if (sug == null) sugLine = 'No payments left in this billing year.';
-  else if (conf < .5) {
+  if (u === 'gas' && x.e.fit.weight < .5) {
     const g = S.cfg.gas, coldAnnual = g.baseKWhMonth * 12 + g.coldKWh, tc = tariff(S.cfg, 'gas', coldAnnual);
     const costCold = tc.v * coldAnnual + tc.f * (x.en - x.s) / DAY / MD;
     const safe = Math.max(0, Math.ceil((costCold * 1.05 - x.advPaid) / x.remaining / 10) * 10);
-    sugLine = `A safe gas advance for now is about <b>${kc(safe)}</b> a month, enough for a cold winter (now ${kc(cur)}). The forecast as it stands needs about ${kc(sug)}; it firms up once December’s readings are in.`;
-  } else sugLine = `Suggested gas advance: <b>${kc(sug)}</b> a month (now ${kc(cur)}). It covers the forecast plus 5% headroom, spread over the ${x.remaining} remaining payments.`;
-  return `<section class="card"><div class="card-h"><h3>Advance check</h3><span class="chip ${conf < .5 ? 'warn' : 'ok'}">${conf < .5 ? '! Early estimate' : '✓ Based on heating data'}</span></div>${body}
-    <div class="note info"><span class="ic">≈</span><span>${sugLine}</span></div></section>`;
-}
-function advanceCard(u, x, now) {
-  const cur = currentAdvance(x, now); const sug = x.suggested; if (sug == null) return '';
+    return `<section class="card adv"><div class="card-h"><h3>Advance</h3><span class="chip warn">Early estimate</span></div><dl class="kv"><div><dt>Now</dt><dd>${kc(cur)}</dd></div><div><dt>Forecast needs</dt><dd>${kc(sug)}</dd></div><div><dt>Safe for a cold winter</dt><dd>${kc(safe)}</dd></div></dl></section>`;
+  }
   const diff = sug - cur; const ok = Math.abs(diff) <= Math.max(30, cur * .08);
-  return `<section class="card"><div class="card-h"><h3>Advance check</h3><span class="chip ${ok ? 'ok' : 'warn'}">${ok ? '✓ About right' : diff > 0 ? '! Too low' : '! Too high'}</span></div><p style="margin:0">To finish the billing year near zero you would pay about <b>${kc(sug)}</b> a month (now ${kc(cur)}). ${ok ? 'No change needed.' : diff > 0 ? `Raising it avoids a ${kc(-x.settlement)} top-up at the bill.` : 'Lowering it keeps more money with you during the year.'}</p></section>`;
+  return `<section class="card adv"><div class="card-h"><h3>Advance</h3><span class="chip ${ok ? 'ok' : 'warn'}">${ok ? '✓ About right' : diff > 0 ? '! Too low' : '! Too high'}</span></div><dl class="kv"><div><dt>Now</dt><dd>${kc(cur)}</dd></div><div><dt>To finish near zero</dt><dd>${kc(sug)}</dd></div></dl></section>`;
 }
+function bandLabel(i) { const b = S.cfg.gas.bands; const lo = i ? b[i - 1].upToKWh : 0; return `${nfmt(lo / 1000, 2)}–${nfmt(b[i].upToKWh / 1000, 2)} MWh`; }
+function currentAdvance(x, now) { const nx = x.sched.find(p => p.t > now); return nx ? nx.a : (x.sched.length ? x.sched[x.sched.length - 1].a : 0); }
 function gasExpectedCard(x, now) {
   const g = S.cfg.gas, set = x.e.ms[0].set;
   const ih = impliedGasH(S.cfg, x);
@@ -660,10 +616,9 @@ function gasExpectedCard(x, now) {
     rows.push(`<tr><td>${esc(fd(me, { year: '2-digit' }))}</td><td>${nfmt(Math.round(fns.pace(t)))}</td><td>${nfmt(Math.round(fns.low(t)))}</td><td>${nfmt(Math.round((fns.cez || fns.central)(t)))}</td><td>${nfmt(Math.round(fns.cold(t)))}</td><td>${act}</td></tr>`);
     me = Date.UTC(new Date(me).getUTCFullYear(), new Date(me).getUTCMonth() + 2, 0);
   }
-  return `<section class="card"><div class="card-h"><h3>Meter reading vs expected</h3>${legend([{ c: 'var(--gas)', label: 'Your readings' }, { c: 'var(--gas)', label: 'Your pace', dash: 1 }, { c: 'var(--muted)', label: 'Less heating' }, { c: 'var(--ink)', label: 'ČEZ estimate', dash: 1 }, { c: 'var(--ink-2)', label: 'Cold' }])}</div>
+  return `<section class="card"><div class="card-h"><h3>Gas meter vs expected</h3>${hideBtn('expected')}</div>${legend([{ c: 'var(--gas)', label: 'Readings' }, { c: 'var(--gas)', label: 'Your pace', dash: 1 }, { c: 'var(--muted)', label: 'Less heating' }, { c: 'var(--ink)', label: 'ČEZ', dash: 1 }, { c: 'var(--ink-2)', label: 'Cold' }])}
     <div class="chart" id="ch-gas-exp"></div>
-    <div class="tblw"><table class="tbl"><thead><tr><th>Month end</th><th>Your pace</th><th>Less heating</th><th>ČEZ</th><th>Cold</th><th>Actual (m³)</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
-    <p class="small muted" style="margin:0">After May, add about ${nfmt(g.baseKWhMonth / g.kwhPerM3, 1)} m³ a month for hot water. Readings within two days of a month end count as actual.</p></section>`;
+    <details class="more"><summary>Month-end targets</summary><div class="tblw" style="margin-top:8px"><table class="tbl"><thead><tr><th>Month end</th><th>Your pace</th><th>Less heating</th><th>ČEZ</th><th>Cold</th><th>Actual (m³)</th></tr></thead><tbody>${rows.join('')}</tbody></table></div></details></section>`;
 }
 function addMonthsISO(s, k) { const t = pd(s); return iso(Date.UTC(new Date(t).getUTCFullYear(), new Date(t).getUTCMonth() + k + 1, 0)); }
 function balanceCard(u, x, now) {
@@ -682,7 +637,7 @@ function balanceCard(u, x, now) {
   const extra = x.hasAdv ? t => { let paid = 0; x.sched.forEach(p => { if (p.t <= t) paid += p.a; }); return [['Balance', skc(paid - x.cost(x.s, t))]]; } : null;
   JOBS.push({ id: 'ch-bal-' + u, fn: el => lineChart(el, { key: 'bal-' + u, series, x0: x.s, x1: x.en, today: now, zero: true, yFmt: kfmt, tipFmt: v => kc(v), extra, height: 220, mr: 82, aria: `${U[u].label}: cumulative advances against cumulative cost over the billing year` }) });
   const lg = [{ c: U[u].c, label: 'Cost so far' }, { c: U[u].c, label: 'Forecast', dash: 1 }]; if (x.hasAdv) lg.unshift({ c: 'var(--ink-2)', label: 'Advances paid' });
-  return `<section class="card"><div class="card-h"><h3>Running balance</h3>${legend(lg)}</div><div class="chart" id="ch-bal-${u}"></div><p class="small muted" style="margin:0">Billing year ${esc(fd(x.s))} – ${esc(fd(x.en - DAY))}. The gap between the lines at the right edge is the projected ${x.hasAdv ? (x.settlement >= 0 ? 'refund' : 'top-up') : 'cost'}.</p></section>`;
+  return `<section class="card"><div class="card-h"><h3>Running balance</h3>${hideBtn('balance')}</div>${legend(lg)}<div class="chart" id="ch-bal-${u}"></div></section>`;
 }
 function modelUnits(x, a, b) { return x.e.ms.filter(m => m.set.length).reduce((t, m) => t + integrate(m.rate, a, b), 0); }
 function monthlyUseCard(u, x, now) {
@@ -713,27 +668,11 @@ function monthlyUseCard(u, x, now) {
   }
   const dec = u === 'elec' ? 0 : 1;
   JOBS.push({ id: 'ch-use-' + u, fn: el => barChart(el, { key: 'use-' + u, cats, yFmt: v => nfmt(v), vFmt: v => nfmt(v, dec) + ' ' + U[u].unit, height: 190, aria: `${U[u].label} use per month` }) });
-  return `<section class="card"><div class="card-h"><h3>Monthly use</h3>${legend([{ c: U[u].c, label: 'Used (from readings)', sq: 1 }, { c: U[u].c, label: 'Projection', sq: 1, fc: 1 }])}</div><div class="chart" id="ch-use-${u}"></div><p class="small muted" style="margin:0">The solid bar is what you used; the faded part reaches up to what was projected for that month, so a faded top on a past month means you used less than projected. Months between readings are split in proportion to the days.${u === 'gas' ? ' The projection follows the heating curve, scaled to your readings.' : ''}</p></section>`;
-}
-function leakCard(u) {
-  const rs = rawReadings(u).filter(r => r.time);
-  let found = null;
-  for (let i = rs.length - 1; i > 0; i--) { const a = rs[i - 1], b = rs[i]; if ((a.meter || 'main') !== (b.meter || 'main')) continue; const h = (rT(b) - rT(a)) / 3600000; if (h > .15 && h < 24) { found = { a, b, h, flow: (+b.value - +a.value) / h }; break; } }
-  const how = 'Take a reading, run nothing that uses ' + (u === 'gas' ? 'gas (no hot water, heating off)' : 'water') + ' for a few hours, then take another. Overnight works well. Both readings need a time.';
-  if (!found) return `<section class="card"><h3>Leak test</h3><p class="small" style="margin:0;color:var(--ink-2)">${how}</p></section>`;
-  const per = U[u].unit + '/h';
-  const ok = found.flow <= (u === 'gas' ? 0.002 : 0.001);
-  return `<section class="card"><div class="card-h"><h3>Leak test</h3><span class="chip ${ok ? 'ok' : 'warn'}">${ok ? '✓ No flow' : '! Flow while idle'}</span></div><p style="margin:0">Last test: <b>${nfmt(found.flow, 4)} ${per}</b> over ${nfmt(found.h, 1)} hours (${esc(fdShort(rT(found.a)))} ${esc(found.a.time)} → ${esc(found.b.time)}). ${ok ? 'Nothing was flowing.' : 'Something used ' + (u === 'gas' ? 'gas' : 'water') + ' while it should have been idle. If nothing was on, repeat the test; a steady flow means a leak' + (u === 'gas' ? ' (gas emergency line 1239).' : ', often a running toilet.')}</p><p class="small muted" style="margin:0">${how}</p></section>`;
+  return `<section class="card"><div class="card-h"><h3>Monthly use</h3>${hideBtn('use')}</div>${legend([{ c: U[u].c, label: 'Used', sq: 1 }, { c: U[u].c, label: 'Projection', sq: 1, fc: 1 }])}<div class="chart" id="ch-use-${u}"></div></section>`;
 }
 function recentCard(u, now) {
-  const list = withDeltas(rawReadings(u)).reverse().slice(0, 5);
+  const list = withDeltas(rawReadings(u)).reverse().slice(0, 3);
   return `<section class="card"><div class="card-h"><h3>Recent readings</h3><button class="btn sm ghost" data-act="log" data-u="${u}">All readings</button></div><div class="rows">${list.map(d => readingRow(d, now)).join('')}</div></section>`;
-}
-function tariffFoot(u, x) {
-  const c = S.cfg;
-  if (u === 'gas') { const b = c.gas.bands[x.tf.band]; return `<p class="foot">Gas: ${nfmt(x.tf.v, 2)} Kč/kWh all-in (ČEZ ${nfmt(c.gas.supplierPerKWh, 2)} + GasNet ${nfmt(b.distPerKWh, 2)}, band ${bandLabel(x.tf.band)}) plus ${kc2(x.tf.f)} a month. 1 m³ = ${nfmt(c.gas.kwhPerM3, 2)} kWh. GasNet rates reset each January; update them in Settings.</p>`; }
-  if (u === 'elec') { const dm = +c.elec.distMonthly; const br = Math.abs(dm - 138.99) < .5 ? ', 1×20 A breaker on D02d' : ''; return `<p class="foot">Electricity: ${nfmt(x.tf.v, 2)} Kč/kWh (ČEZ ${nfmt(c.elec.supplierPerKWh, 2)} + distribution ${nfmt(c.elec.distPerKWh, 2)}: ČEZ Distribuce D02d 2026, system services and electricity tax; the renewables fee is state-paid in 2026) plus ${kc2(x.tf.f)} a month (ČEZ ${kc2(c.elec.supplierMonthly)}, breaker and non-grid fee ${kc2(dm)}${br}).</p>`; }
-  return `<p class="foot">Water: ${nfmt(c.water.pricePerM3, 2)} Kč/m³ (OVAK 2026, water and sewage incl. VAT). Your landlord bills it through the service charges, so the advance and settlement dates are theirs; set both in Settings.</p>`;
 }
 function readingRow(d, now) {
   const r = d.r, u = r.utility;
@@ -757,8 +696,7 @@ function vLog(now) {
   if (!all.length) body = `<div class="empty"><h3>No readings here yet</h3><button class="btn primary" data-act="add" data-u="${f === 'all' ? 'gas' : f}">Add a reading</button></div>`;
   else if (S.logView === 'photos') body = withPhoto.length ? `<div class="pgrid">${withPhoto.map(d => `<button class="pcell" data-act="reading" data-id="${esc(d.r.id)}"><img data-photo="${esc(d.r.photo.id)}" alt="${esc(U[d.r.utility].label)} meter photo, ${esc(fd(rT(d.r)))}"><span>${esc(U[d.r.utility].label)} · ${esc(fdShort(rT(d.r)))}<br><b>${esc(valFmt(d.r.utility, +d.r.value))} ${U[d.r.utility].unit}</b></span></button>`).join('')}</div>` : `<p class="muted">No photos yet. Readings you add with a photo collect here as evidence.</p>`;
   else body = `<div class="card" style="padding:4px 12px"><div class="rows">${all.map(d => readingRow(d, now)).join('')}</div></div>`;
-  return `<section class="sec"><h2 class="ptitle">Readings</h2><p class="lede">Every reading with its photo and the photo's own timestamp, so you can show what the meter said and when.</p></section>
-    <section class="sec"><div class="fbar">${chips}<span class="sp"></span>${views}</div>${body}</section>`;
+  return `<section class="sec"><div class="fbar">${chips}<span class="sp"></span>${views}</div>${body}</section>`;
 }
 
 /* ---------- bills ---------- */
@@ -802,8 +740,8 @@ function vBills(now) {
       ${b.note ? `<p class="small" style="margin:0;color:var(--ink-2)">${esc(b.note)}</p>` : ''}
       <div class="btnrow">${att}<span style="flex:1"></span><button class="btn sm" data-act="bill" data-id="${esc(b.id)}">Edit</button></div></article>`;
   }).join('');
-  return `<section class="sec"><div class="card-h"><h2 class="ptitle">Bills</h2><button class="btn primary" data-act="bill-add">Add a bill</button></div><p class="lede">Enter the figures from each vyúčtování. They're checked against your own readings and tariffs: end reading, usage, kWh conversion, cost and whether the balance adds up.</p></section>
-    <section class="sec">${cards || `<div class="empty"><h3>No bills yet</h3><p class="lede">Add the first reconciliation bill to check it against your readings.</p><button class="btn primary" data-act="bill-add">Add a bill</button></div>`}</section>`;
+  return `<section class="sec"><div class="btnrow"><button class="btn primary" data-act="bill-add">Add a bill</button></div></section>
+    <section class="sec">${cards || `<div class="empty"><h3>No bills yet</h3><button class="btn primary" data-act="bill-add">Add a bill</button></div>`}</section>`;
 }
 
 /* ---------- settings ---------- */
@@ -822,27 +760,28 @@ function vSettings() {
   const advBlock = u => `<fieldset class="card"><div class="card-h"><h3>${U[u].label} advances</h3><span class="aside">${u === 'water' ? 'from your landlord' : 'set in Můj ČEZ'}</span></div>
     ${(d[u].advances || []).map((a, i) => `<div class="arow"><label class="fld"><span>From</span><input class="in" type="date" id="adv-${u}-${i}-from" data-adv="${u}" data-i="${i}" data-k="from" value="${esc(a.from)}"></label><label class="fld"><span>Kč a month</span><input class="in" type="text" inputmode="decimal" id="adv-${u}-${i}-amount" data-adv="${u}" data-i="${i}" data-k="amount" value="${esc(a.amount)}"></label><button class="btn sm ghost danger" type="button" data-act="adv-del" data-u="${u}" data-i="${i}" aria-label="Remove">✕</button></div>`).join('') || '<p class="muted small" style="margin:0">No advance set.</p>'}
     <div class="arow"><label class="fld"><span>Last payment</span><input class="in" type="date" id="f-${u}-lastAdvance" data-path="${u}.lastAdvance" data-type="date" value="${esc(d[u].lastAdvance || '')}"></label><span></span><button class="btn sm" type="button" data-act="adv-add" data-u="${u}">Add a change</button></div>
-    <p class="hint" style="margin:0">Payments repeat monthly on the day of the first date. To change the amount from a given month, add a row with that date.</p></fieldset>`;
+    </fieldset>`;
   const bands = d.gas.bands.map((b, i) => `<div class="fgrid"><label class="fld"><span>Band ${i + 1} up to (kWh/yr)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-up" data-path="gas.bands.${i}.upToKWh" data-type="num" value="${b.upToKWh}"></label><label class="fld"><span>ČEZ (Kč/month)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-s" data-path="gas.bands.${i}.supplierMonthly" data-type="num" value="${b.supplierMonthly ?? ''}"></label><label class="fld"><span>GasNet (Kč/kWh)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-v" data-path="gas.bands.${i}.distPerKWh" data-type="num" value="${b.distPerKWh}"></label><label class="fld"><span>GasNet (Kč/month)</span><input class="in" type="text" inputmode="decimal" id="band-${i}-f" data-path="gas.bands.${i}.distMonthly" data-type="num" value="${b.distMonthly}"></label></div>`).join('');
   const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const hs = d.gas.heatSplit.map((v, i) => `<label>${mon[i]}<input class="in" type="text" inputmode="decimal" id="hs-${i}" data-path="gas.heatSplit.${i}" data-type="num" value="${v}"></label>`).join('');
   const meters = (d.water.meters || []).map((m, i) => `<div class="arow"><label class="fld"><span>Meter name</span><input class="in" type="text" id="wm-${i}-name" data-path="water.meters.${i}.name" data-type="text" value="${esc(m.name)}"></label><label class="fld"><span>Number</span><input class="in" type="text" id="wm-${i}-serial" data-path="water.meters.${i}.serial" data-type="text" value="${esc(m.serial || '')}"></label>${d.water.meters.length > 1 ? `<button class="btn sm ghost danger" type="button" data-act="wm-del" data-i="${i}" aria-label="Remove meter">✕</button>` : '<span></span>'}</div>`).join('');
-  return `<section class="sec"><div class="card-h"><h2 class="ptitle">Settings</h2><div class="btnrow"><button class="btn" data-act="set-reset" type="button">Discard changes</button><button class="btn primary" data-act="set-save" type="button">Save settings</button></div></div><p class="lede">Prices include VAT. Change them when a bill shows different figures or when the distribution rates reset in January.</p></section>
+  return `<section class="sec"><div class="btnrow"><button class="btn" data-act="set-reset" type="button">Discard changes</button><button class="btn primary" data-act="set-save" type="button">Save settings</button></div></section>
   <form id="settings-form" class="sec" style="gap:14px" onsubmit="return false">
+    <fieldset class="card"><h3>Dashboard</h3><div class="sec" style="gap:6px">${[['cost', 'Monthly cost chart (home)'], ['balance', 'Running balance'], ['use', 'Monthly use'], ['expected', 'Gas meter vs expected']].map(([k, l]) => `<label class="check"><input type="checkbox" id="f-display-${k}" data-path="display.${k}" data-type="bool"${d.display && d.display[k] ? ' checked' : ''}><span>${l}</span></label>`).join('')}</div></fieldset>
     <fieldset class="card"><h3>Billing</h3><div class="fgrid">${FIELDS.billing.map(fieldHTML).join('')}</div></fieldset>
     ${advBlock('gas')}${advBlock('elec')}${advBlock('water')}
     <fieldset class="card"><h3>Gas</h3><div class="fgrid">${FIELDS.gas.map(fieldHTML).join('')}</div>
       <label class="fld"><span>GasNet distribution band</span><select class="in" id="f-gas-bandMode" data-path="gas.bandMode" data-type="text"><option value="auto"${d.gas.bandMode === 'auto' ? ' selected' : ''}>Pick from forecast use</option>${d.gas.bands.map((b, i) => `<option value="${i}"${String(d.gas.bandMode) === String(i) ? ' selected' : ''}>Band ${i + 1}: up to ${nfmt(b.upToKWh / 1000, 2)} MWh</option>`).join('')}</select></label>
       <details class="more"><summary>GasNet band rates (2026)</summary><div class="sec" style="margin-top:10px">${bands}</div></details>
       <details class="more"><summary>Heating split by month (% of the year)</summary><div class="hs" style="margin-top:10px">${hs}</div><p class="hint">Should add up to 100. Now ${nfmt(d.gas.heatSplit.reduce((a, b) => a + (+b || 0), 0))}.</p></details></fieldset>
-    <fieldset class="card"><h3>Electricity</h3><div class="fgrid">${FIELDS.elec.map(fieldHTML).join('')}</div><p class="hint" style="margin:0">Breaker charge: 3×25 A is 150.04 Kč/month, 1×25 A is 60.50 Kč/month (ČEZ Distribuce 2026, incl. VAT). Add 15.57 Kč/month for OTE. Your bill shows which you have.</p></fieldset>
+    <fieldset class="card"><h3>Electricity</h3><div class="fgrid">${FIELDS.elec.map(fieldHTML).join('')}</div></fieldset>
     <fieldset class="card"><h3>Water</h3><div class="fgrid">${FIELDS.water.map(fieldHTML).join('')}</div><div class="sec" style="gap:8px">${meters}<div><button class="btn sm" type="button" data-act="wm-add">Add a water meter</button></div></div></fieldset>
     <div class="btnrow"><button class="btn" data-act="set-reset" type="button">Discard changes</button><button class="btn primary" data-act="set-save" type="button">Save settings</button></div>
   </form>` + appSettingsHTML();
 }
 function readSettingsForm() {
   const d = S.draft;
-  main.querySelectorAll('[data-path]').forEach(el => { const t = el.dataset.type; let v = el.value; if (t === 'num') { v = parseNum(v); if (!isFinite(v)) v = getP(d, el.dataset.path); } setP(d, el.dataset.path, v); });
+  main.querySelectorAll('[data-path]').forEach(el => { const t = el.dataset.type; let v = el.value; if (t === 'bool') v = el.checked; else if (t === 'num') { v = parseNum(v); if (!isFinite(v)) v = getP(d, el.dataset.path); } setP(d, el.dataset.path, v); });
   main.querySelectorAll('[data-adv]').forEach(el => { const a = d[el.dataset.adv].advances[+el.dataset.i]; if (!a) return; a[el.dataset.k] = el.dataset.k === 'amount' ? (isFinite(parseNum(el.value)) ? parseNum(el.value) : 0) : el.value; });
 }
 
@@ -1135,12 +1074,15 @@ function openBillSheet(edit) {
 
 /* ================= events ================= */
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+{ const nb = $('#navbtns'); if (nb) nb.addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(S.tab === b.dataset.tab ? 'overview' : b.dataset.tab); }); }
+{ const br = document.querySelector('.brand'); if (br) { br.style.cursor = 'pointer'; br.addEventListener('click', () => setTab('overview')); } }
 $('#fab').addEventListener('click', () => openReadingSheet(UTILS.includes(S.tab) ? S.tab : (S.logFilter !== 'all' && S.tab === 'log' ? S.logFilter : 'gas')));
 main.addEventListener('click', async e => {
   const a = e.target.closest('[data-act]');
   if (a) {
     e.stopPropagation(); const act = a.dataset.act;
     if (APP_ACTS[act]) return APP_ACTS[act](a, e);
+    if (act === 'hide-chart') { const c = clone(S.cfg); c.display = Object.assign({}, c.display, { [a.dataset.k]: false }); try { await saveConfig(clean(c)); toast('Hidden. Turn it back on in Settings → Dashboard.'); } catch (er) { toast('Couldn’t save. Try again.'); } return; }
     if (act === 'add') return openReadingSheet(a.dataset.u);
     if (act === 'reading') return openReadingDetail(a.dataset.id);
     if (act === 'log') { S.logFilter = a.dataset.u || 'all'; return setTab('log'); }
@@ -1181,7 +1123,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.5';
+const APP_VERSION = '1.6';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
