@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
     ],
     bandMode: 'auto',
     baseKWhMonth: 60,
-    heatingPriorKWh: 8445, lowKWh: 6000, coldKWh: 10000,
+    heatingPriorKWh: 8445, lowKWh: 6000, coldKWh: 10000, cezKWh: 9165,
     heatSplit: [20, 17, 14, 8, 2, 0, 0, 0, 0, 8, 13, 18],
     advances: [{ from: '2026-10-25', amount: 1890 }],
     lastAdvance: '2027-09-25',
@@ -131,7 +131,11 @@ function engine(cfg, readings, util) {
   let fit;
   if (util === 'gas') {
     fit = fitH(uc, ms[0].set);
-    const rate = t => gasDailyKWh(uc, fit.H, t) / uc.kwhPerM3;
+    // May–October after the latest reading follow ČEZ's expected yearly use, not your fitted pace.
+    const st = ms[0].set, lastT = st.length ? st[st.length - 1].t : 0;
+    const Hcez = isFinite(+uc.cezKWh) && +uc.cezKWh > 0 ? Math.max(0, +uc.cezKWh - uc.baseKWhMonth * 12) : null;
+    const summer = t => { const m = new Date(t).getUTCMonth(); return m >= 4 && m <= 9; };
+    const rate = t => gasDailyKWh(uc, Hcez != null && t > lastT && summer(t) ? Hcez : fit.H, t) / uc.kwhPerM3;
     ms.forEach(x => { x.rate = rate; });
   } else {
     const per = (+uc.fallbackPerDay || 0) / meters.length;
@@ -747,7 +751,7 @@ function vBills(now) {
 /* ---------- settings ---------- */
 const FIELDS = {
   billing: [['period.start', 'ČEZ billing year starts', 'date'], ['period.end', 'ČEZ billing year ends', 'date'], ['budgetMonthly', 'Utilities budget (Kč/month)']],
-  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.heatingPriorKWh', 'Heating, starting estimate until winter readings (kWh/year)'], ['gas.lowKWh', 'Heating, less-heating track (kWh/year)'], ['gas.coldKWh', 'Heating, cold-winter track (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
+  gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.cezKWh', 'ČEZ expected use, used for May–Oct (kWh/year)'], ['gas.heatingPriorKWh', 'Heating, starting estimate until winter readings (kWh/year)'], ['gas.lowKWh', 'Heating, less-heating track (kWh/year)'], ['gas.coldKWh', 'Heating, cold-winter track (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
   elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker and non-grid fee (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
   water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
 };
@@ -1123,7 +1127,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
