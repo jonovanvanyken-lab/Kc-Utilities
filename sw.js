@@ -1,8 +1,8 @@
 /* Kč Utilities service worker: lets the app open offline. The app's own code is fetched fresh when online
    (network first), so an old copy is never mixed with a new one. Fonts and icons are cache first.
    It never touches GitHub API traffic. */
-const VERSION = "kc-utilities-1.9";
-const SHELL = ["circulyte.css?v=1", "circulyte.js?v=1", "./", "index.html", "app.css?v=1.9", "app.js?v=1.9", "manifest.webmanifest"];
+const VERSION = "kc-utilities-1.10";
+const SHELL = ["circulyte.css?v=1", "circulyte.js?v=1", "./", "index.html", "app.css?v=1.10", "app.js?v=1.10", "manifest.webmanifest"];
 const STATIC = ["icons/icon-192.png", "icons/icon-512.png", "icons/maskable-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png",
   "fonts/barlow-latin-400-normal.woff2", "fonts/barlow-latin-500-normal.woff2", "fonts/barlow-latin-600-normal.woff2",
   "fonts/barlow-latin-ext-400-normal.woff2", "fonts/barlow-latin-ext-500-normal.woff2", "fonts/barlow-latin-ext-600-normal.woff2",

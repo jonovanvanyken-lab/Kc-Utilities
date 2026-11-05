@@ -38,7 +38,7 @@ const DEFAULT_CONFIG = {
     meters: [{ id: 'main', name: 'Electricity meter', serial: '' }]
   },
   water: {
-    pricePerM3: 112.99, monthlyFixed: 0,
+    pricePerM3: 112.99, monthlyFixed: 0, otherMonthly: 40,
     fallbackPerDay: 0.1,
     period: { start: '', end: '' },
     advances: [],
@@ -512,7 +512,13 @@ function monthUse(u, x, now) {
   const inMonth = lastT > a;
   const used = inMonth ? x.e.units(a, Math.min(lastT, b)) : 0;
   const exp = modelUnits(x, a, inMonth ? Math.min(lastT, b) : Math.min(Math.max(now, a), b));
-  return { u, a, b, pm, used, exp, lastT, inMonth, pct: pm > 0 ? used / pm * 100 : 0, expPct: pm > 0 ? exp / pm * 100 : 0 };
+  let adv = null;
+  if (u === 'water' && x.hasAdv) {
+    const w = S.cfg.water, amt = currentAdvance(x, now);
+    const units = (amt - (+w.monthlyFixed || 0) - (+w.otherMonthly || 0)) / w.pricePerM3 * (b - a) / DAY / MD;
+    if (units > 0) adv = { amt, units };
+  }
+  return { u, a, b, pm, used, exp, lastT, inMonth, adv, pct: pm > 0 ? used / pm * 100 : 0, expPct: pm > 0 ? exp / pm * 100 : 0 };
 }
 function monthBarHTML(m) {
   const u = m.u, unit = U[u].unit, dp = u === 'elec' ? 0 : 1;
@@ -521,7 +527,9 @@ function monthBarHTML(m) {
   const sub = m.inMonth ? `${nfmt(m.used, dp)} of ~${nfmt(m.pm, dp)} ${unit} · ${nfmt(m.expPct)}% expected by ${esc(fdShort(Math.min(m.lastT, m.b - 1)))}` : `No ${mon} reading yet · ~${nfmt(m.pm, dp)} ${unit} projected`;
   return `<div class="mbar" style="--c:${U[u].c}"><div class="mbar-h"><span>${mon} ${name} used</span><b>${m.inMonth ? nfmt(m.pct) + '%' : '—'}</b></div>
     <div class="mbar-t"><i style="width:${Math.min(100, m.pct).toFixed(1)}%"></i><em style="left:${Math.min(100, m.expPct).toFixed(1)}%"></em></div>
-    <span class="mbar-s">${sub}</span></div>`;
+    <span class="mbar-s">${sub}</span>${m.adv ? `<div class="mbar-h" style="margin-top:6px"><span>Projected vs what the advance pays for</span><b>${nfmt(m.pm / m.adv.units * 100)}%</b></div>
+    <div class="mbar-t"><i style="width:${Math.min(100, m.pm / m.adv.units * 100).toFixed(1)}%;opacity:.45"></i></div>
+    <span class="mbar-s">~${nfmt(m.pm, 1)} of ~${nfmt(m.adv.units, 1)} m³ covered by the ${kc(m.adv.amt)} advance</span>` : ''}</div>`;
 }
 function uRow(u, x, now) {
   const last = latest(u);
@@ -755,7 +763,7 @@ const FIELDS = {
   billing: [['period.start', 'ČEZ billing year starts', 'date'], ['period.end', 'ČEZ billing year ends', 'date'], ['budgetMonthly', 'Utilities budget (Kč/month)']],
   gas: [['gas.kwhPerM3', 'kWh per m³'], ['gas.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['gas.supplierMonthly', 'ČEZ standing charge if a band has none (Kč/month)'], ['gas.baseKWhMonth', 'Hot water and cooking (kWh/month)'], ['gas.cezKWh', 'ČEZ expected use, used for May–Oct (kWh/year)'], ['gas.heatingPriorKWh', 'Heating, starting estimate until winter readings (kWh/year)'], ['gas.lowKWh', 'Heating, less-heating track (kWh/year)'], ['gas.coldKWh', 'Heating, cold-winter track (kWh/year)'], ['gas.eic', 'Supply point EIC', 'text'], ['gas.meters.0.serial', 'Meter number', 'text']],
   elec: [['elec.supplierPerKWh', 'ČEZ price (Kč/kWh)'], ['elec.supplierMonthly', 'ČEZ standing charge (Kč/month)'], ['elec.distPerKWh', 'Distribution etc. (Kč/kWh)'], ['elec.distMonthly', 'Breaker and non-grid fee (Kč/month)'], ['elec.fallbackPerDay', 'Starting estimate (kWh/day)'], ['elec.meters.0.serial', 'Meter number', 'text']],
-  water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
+  water: [['water.pricePerM3', 'Water + sewage (Kč/m³)'], ['water.monthlyFixed', 'Fixed charge (Kč/month)'], ['water.otherMonthly', 'Other items in the advance, e.g. common lighting (Kč/month)'], ['water.fallbackPerDay', 'Starting estimate (m³/day)'], ['water.period.start', 'Landlord year starts (blank = ČEZ year)', 'date'], ['water.period.end', 'Landlord year ends', 'date']]
 };
 const getP = (o, p) => p.split('.').reduce((a, k) => a == null ? a : a[k], o);
 const setP = (o, p, v) => { const ks = p.split('.'); let a = o; ks.slice(0, -1).forEach(k => { if (a[k] == null) a[k] = {}; a = a[k]; }); a[ks[ks.length - 1]] = v; };
@@ -1129,7 +1137,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.10';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
