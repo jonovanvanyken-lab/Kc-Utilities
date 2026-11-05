@@ -354,3 +354,6 @@ button.sync:hover{border-color:var(--ink-2)}
 .tiles{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .tiles .tile{padding:10px 11px}
 .tiles .tile .v{font-size:clamp(17px,5.4vw,27px)}
+
+.bal-today{margin:12px 0 0;font-size:15px;color:var(--ink-2)}
+.bal-today b{font:700 24px/1 var(--f-display);margin-left:6px}

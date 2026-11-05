@@ -496,10 +496,12 @@ function vOverview(now) {
   if (!any) return `<section class="empty"><h3>No readings yet</h3><div class="btnrow"><button class="btn primary" data-act="add" data-u="gas">Add your first reading</button><button class="btn" data-act="import">Import from the Claude page</button></div></section>`;
   const counted = UTILS.filter(u => sums[u].e.hasData && sums[u].hasAdv);
   const total = counted.reduce((a, u) => a + sums[u].settlement, 0);
+  const bal = counted.reduce((a, u) => a + sums[u].balanceNow, 0);
   const good = total >= 0;
   let html = `<section class="hero"><div><p class="kick">Forecast at the bills</p>
     <div class="hero-fig">${good ? '+' : '−'}${Math.abs(Math.round(total)).toLocaleString('en-GB')}<span class="cur">Kč</span></div>
-    <span class="verdict ${good ? 'good' : 'bad'}">${good ? '▲ Refund' : '▼ Top-up'}</span></div></section>`;
+    <span class="verdict ${good ? 'good' : 'bad'}">${good ? '▲ Refund' : '▼ Top-up'}</span>
+    <p class="bal-today">Balance today <b class="${bal >= 0 ? 'pos-t' : 'neg-t'}">${skc(bal)}</b></p></div></section>`;
   html += `<section class="ulist">${UTILS.map(u => uRow(u, sums[u], now)).join('')}</section>`;
   if (S.cfg.display.cost) html += costChartCard(sums, now);
   return html;
@@ -535,8 +537,8 @@ function uRow(u, x, now) {
   const last = latest(u);
   const head = `<span class="uico" style="--c:${U[u].c};--wash:${U[u].wash}">${ICON[u]}</span><span class="uname">${U[u].label}</span>`;
   if (!x.e.hasData) return `<div class="ucard" role="link" tabindex="0" data-tab="${u}"><div class="uhead">${head}<span class="umeta">No readings</span></div><button class="btn sm" type="button" data-act="add" data-u="${u}" style="width:max-content">Add reading</button></div>`;
-  const val = x.hasAdv ? `<span class="uval ${x.settlement >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.settlement)}</span>` : `<span class="uval">~${kc(x.costYear / 12)}<small>/mo</small></span>`;
-  const sub = `${x.hasAdv ? (x.settlement >= 0 ? 'Refund' : 'To pay') + ' · balance today ' + skc(x.balanceNow) : 'No advance set'} · read ${ago(rT(last), now)}`;
+  const val = x.hasAdv ? `<span class="uval ${x.balanceNow >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.balanceNow)}</span>` : `<span class="uval">~${kc(x.costYear / 12)}<small>/mo</small></span>`;
+  const sub = `${x.hasAdv ? 'Balance today · at the bill ' + skc(x.settlement) : 'No advance set'} · read ${ago(rT(last), now)}`;
   return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details"><div class="uhead">${head}${val}</div><span class="usub">${sub}</span>${monthBarHTML(monthUse(u, x, now))}</div>`;
 }
 function costChartCard(sums, now) {
@@ -1137,7 +1139,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.10';
+const APP_VERSION = '1.11';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
