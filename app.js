@@ -505,19 +505,21 @@ function vOverview(now) {
   return html;
 }
 function hideBtn(k) { return `<button class="hide-x" type="button" data-act="hide-chart" data-k="${k}" aria-label="Hide this chart" title="Hide">✕</button>`; }
-function gasMonth(x, now) {
+function monthUse(u, x, now) {
   const a = monthStart(now), b = addMonths(a, 1, 1);
-  const raw = rawReadings('gas'); const lastT = raw.length ? rT(raw[raw.length - 1]) : 0;
+  const raw = rawReadings(u); const lastT = raw.length ? rT(raw[raw.length - 1]) : 0;
   const pm = modelUnits(x, a, b);
   const inMonth = lastT > a;
   const used = inMonth ? x.e.units(a, Math.min(lastT, b)) : 0;
   const exp = modelUnits(x, a, inMonth ? Math.min(lastT, b) : Math.min(Math.max(now, a), b));
-  return { a, b, pm, used, exp, lastT, inMonth, pct: pm > 0 ? used / pm * 100 : 0, expPct: pm > 0 ? exp / pm * 100 : 0 };
+  return { u, a, b, pm, used, exp, lastT, inMonth, pct: pm > 0 ? used / pm * 100 : 0, expPct: pm > 0 ? exp / pm * 100 : 0 };
 }
 function monthBarHTML(m) {
+  const u = m.u, unit = U[u].unit, dp = u === 'elec' ? 0 : 1;
+  const name = { gas: 'gas', elec: 'electricity', water: 'water' }[u];
   const mon = new Date(m.a).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
-  const sub = m.inMonth ? `${nfmt(m.used, 1)} of ~${nfmt(m.pm)} m³ · ${nfmt(m.expPct)}% expected by ${esc(fdShort(Math.min(m.lastT, m.b - 1)))}` : `No ${mon} reading yet · ~${nfmt(m.pm)} m³ projected`;
-  return `<div class="mbar"><div class="mbar-h"><span>${mon} gas used</span><b>${m.inMonth ? nfmt(m.pct) + '%' : '—'}</b></div>
+  const sub = m.inMonth ? `${nfmt(m.used, dp)} of ~${nfmt(m.pm, dp)} ${unit} · ${nfmt(m.expPct)}% expected by ${esc(fdShort(Math.min(m.lastT, m.b - 1)))}` : `No ${mon} reading yet · ~${nfmt(m.pm, dp)} ${unit} projected`;
+  return `<div class="mbar" style="--c:${U[u].c}"><div class="mbar-h"><span>${mon} ${name} used</span><b>${m.inMonth ? nfmt(m.pct) + '%' : '—'}</b></div>
     <div class="mbar-t"><i style="width:${Math.min(100, m.pct).toFixed(1)}%"></i><em style="left:${Math.min(100, m.expPct).toFixed(1)}%"></em></div>
     <span class="mbar-s">${sub}</span></div>`;
 }
@@ -527,7 +529,7 @@ function uRow(u, x, now) {
   if (!x.e.hasData) return `<div class="ucard" role="link" tabindex="0" data-tab="${u}"><div class="uhead">${head}<span class="umeta">No readings</span></div><button class="btn sm" type="button" data-act="add" data-u="${u}" style="width:max-content">Add reading</button></div>`;
   const val = x.hasAdv ? `<span class="uval ${x.settlement >= 0 ? 'pos-t' : 'neg-t'}">${skc(x.settlement)}</span>` : `<span class="uval">~${kc(x.costYear / 12)}<small>/mo</small></span>`;
   const sub = `${x.hasAdv ? (x.settlement >= 0 ? 'Refund' : 'To pay') + ' · balance today ' + skc(x.balanceNow) : 'No advance set'} · read ${ago(rT(last), now)}`;
-  return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details"><div class="uhead">${head}${val}</div><span class="usub">${sub}</span>${u === 'gas' ? monthBarHTML(gasMonth(x, now)) : ''}</div>`;
+  return `<div class="ucard" role="link" tabindex="0" data-tab="${u}" aria-label="${U[u].label} details"><div class="uhead">${head}${val}</div><span class="usub">${sub}</span>${monthBarHTML(monthUse(u, x, now))}</div>`;
 }
 function costChartCard(sums, now) {
   const ms0 = monthStart(sums.gas.s || pd(S.cfg.period.start));
@@ -558,7 +560,7 @@ function vUtility(u, now) {
     <div class="tile"><span class="l">Balance today</span><span class="v ${x.hasAdv ? (x.balanceNow >= 0 ? 'pos-t' : 'neg-t') : ''}">${x.hasAdv ? skc(x.balanceNow) : kc(-x.costNow)}</span><span class="s">${x.hasAdv ? kc(x.advPaid) + ' paid' : 'cost so far'}</span></div>
     <div class="tile"><span class="l">Year</span><span class="v">~${kc(x.costYear)}</span><span class="s">${yearUse}</span></div>
   </section>`;
-  if (u === 'gas') html += `<section class="card">${monthBarHTML(gasMonth(x, now))}</section>`;
+  html += `<section class="card">${monthBarHTML(monthUse(u, x, now))}</section>`;
   html += adviceCard(u, x, now);
   const d = S.cfg.display;
   if (d.balance) html += balanceCard(u, x, now);
@@ -1127,7 +1129,7 @@ new ResizeObserver(() => { const w = main.clientWidth; if (Math.abs(w - lastW) <
    key derived from your passphrase (PBKDF2-SHA256, 600,000 rounds). Sync stores only the encrypted vault and
    encrypted photos in a PRIVATE GitHub repository. The access token lives inside this device's encrypted copy
    (docs._device) and is never synced or put in backups. */
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const te = new TextEncoder(), td = new TextDecoder();
 const ITER = 600000;
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
